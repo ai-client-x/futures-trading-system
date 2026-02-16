@@ -1,0 +1,72 @@
+# 期货交易系统配置
+# Futures Trading System Configuration
+
+market: china_futures
+
+# 初始资金
+initial_capital: 500000
+
+# 保证金相关
+margin_rate: 0.10        # 保证金比例 10%
+commission_rate: 0.0001  # 手续费万分之一
+slippage: 0.0001         # 滑点万分之一
+
+# 仓位管理
+max_position: 0.5       # 最大仓位50%
+max_positions: 3         # 最多同时持仓品种数
+
+# 风控参数
+max_loss_per_trade: 0.03  # 单笔最大亏损3%
+max_loss_per_day: 0.05    # 单日最大亏损5%
+stop_loss_pct: 0.02       # 止损线2%
+take_profit_pct: 0.04     # 止盈线4%
+
+# 期货合约配置
+contracts:
+  rb:
+    name: "螺纹钢"
+    margin: 5000
+    tick: 1
+    multiplier: 10
+  i:
+    name: "铁矿石"
+    margin: 10000
+    tick: 0.5
+    multiplier: 100
+  j:
+    name: "焦炭"
+    margin: 10000
+    tick: 0.5
+    multiplier: 100
+  jm:
+    name: "焦煤"
+    margin: 8000
+    tick: 0.5
+    multiplier: 60
+  au:
+    name: "黄金"
+    margin: 40000
+    tick: 0.05
+    multiplier: 1000
+  ag:
+    name: "白银"
+    margin: 8000
+    tick: 1
+    multiplier: 15
+  cu:
+    name: "铜"
+    margin: 20000
+    tick: 10
+    multiplier: 5
+  al:
+    name: "铝"
+    margin: 5000
+    tick: 5
+    multiplier: 5
+
+# 技术指标参数
+indicators:
+  ma_periods: [5, 10, 20, 60]
+  rsi_period: 14
+  macd: [12, 26, 9]
+  atr_period: 14
