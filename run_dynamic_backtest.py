@@ -92,31 +92,68 @@ class DynamicBacktest:
     def _conn(self):
         return sqlite3.connect(self.db_path)
     
-    def get_stock_pool(self, date: str) -> List[Dict]:
+    def get_stock_pool(self, date: str, industry_diversified: bool = False) -> List[Dict]:
         """
         获取指定日期的选股池
         从数据库动态读取
+        
+        Args:
+            date: 日期
+            industry_diversified: 是否行业分散
         """
         conn = self._conn()
         
-        query = f"""
-            SELECT ts_code, name, close, pe, roe, dv_ratio, 
-                   debt_to_assets, market_cap
-            FROM fundamentals
-            WHERE pe > 0 AND pe <= {self.conditions['max_pe']}
-              AND roe >= {self.conditions['min_roe']}
-              AND dv_ratio >= {self.conditions['min_dv_ratio']}
-              AND debt_to_assets <= {self.conditions['max_debt']}
-              AND market_cap >= {self.conditions['min_market_cap']}
-            ORDER BY roe DESC
-            LIMIT 50
-        """
+        if industry_diversified:
+            # 行业分散选股
+            query = f"""
+                SELECT ts_code, name, close, pe, roe, dv_ratio, 
+                       debt_to_assets, market_cap, industry
+                FROM fundamentals
+                WHERE pe > 0 AND pe <= {self.conditions['max_pe']}
+                  AND roe >= {self.conditions['min_roe']}
+                  AND dv_ratio >= {self.conditions['min_dv_ratio']}
+                  AND debt_to_assets <= {self.conditions['max_debt']}
+                  AND market_cap >= {self.conditions['min_market_cap']}
+                  AND industry IS NOT NULL
+                ORDER BY roe DESC
+                LIMIT 200
+            """
+        else:
+            query = f"""
+                SELECT ts_code, name, close, pe, roe, dv_ratio, 
+                       debt_to_assets, market_cap
+                FROM fundamentals
+                WHERE pe > 0 AND pe <= {self.conditions['max_pe']}
+                  AND roe >= {self.conditions['min_roe']}
+                  AND dv_ratio >= {self.conditions['min_dv_ratio']}
+                  AND debt_to_assets <= {self.conditions['max_debt']}
+                  AND market_cap >= {self.conditions['min_market_cap']}
+                ORDER BY roe DESC
+                LIMIT 50
+            """
         
         df = pd.read_sql(query, conn)
         conn.close()
         
         if df is None or len(df) == 0:
             return []
+        
+        if industry_diversified:
+            # 行业分散：每个行业最多2只，最多15个行业
+            selected = []
+            industries = set()
+            
+            for _, row in df.iterrows():
+                ind = row.get('industry', '')
+                cnt = len([s for s in selected if s.get('industry', '') == ind])
+                
+                if ind and (ind not in industries or cnt < 2):
+                    selected.append(row.to_dict())
+                    industries.add(ind)
+                    if len(industries) >= 15:
+                        break
+            
+            return selected
         
         return df.to_dict('records')
     
@@ -340,6 +377,103 @@ class DynamicBacktest:
         }
 
 
+
+    def run_industry_diversified(self, strategy_name: str, start_date: str, end_date: str) -> Dict:
+        """行业分散选股回测"""
+        logger.info(f"运行策略: {strategy_name} (行业分散)")
+        
+        capital = self.initial_capital
+        positions = []
+        trades = []
+        
+        conn = self._conn()
+        trade_dates = pd.read_sql(f"""
+            SELECT DISTINCT trade_date FROM daily
+            WHERE trade_date >= '{start_date}' AND trade_date <= '{end_date}'
+            ORDER BY trade_date
+        """, conn)['trade_date'].tolist()
+        conn.close()
+        
+        last_month = None
+        peak = capital
+        max_dd = 0
+        
+        for i, date in enumerate(trade_dates):
+            month = date[:6]
+            
+            if month != last_month:
+                pool = self.get_stock_pool(date, industry_diversified=True)
+                last_month = month
+            
+            if not pool:
+                continue
+            
+            # 卖出
+            to_sell = []
+            for pos in list(positions):
+                df = self.get_price_series(pos['code'], start_date, date)
+                if df is not None and len(df) >= 20:
+                    signal = self.check_ma_signal(df)
+                    price = df.iloc[-1]['close']
+                    if (price <= pos['cost'] * 0.97 or price >= pos['cost'] * 1.06 or signal == 'sell'):
+                        to_sell.append((pos, price))
+            
+            for pos, price in to_sell:
+                capital += price * pos['qty'] * 0.998
+                trades.append({'date': date, 'code': pos['code'], 'action': 'sell'})
+                positions = [p for p in positions if p['code'] != pos['code']]
+            
+            # 买入
+            max_pos = calculate_max_positions(capital)
+            if len(positions) < max_pos and capital > 0:
+                held = set(p['code'] for p in positions)
+                candidates = [p for p in pool if p['ts_code'] not in held]
+                
+                for cand in candidates:
+                    if len(positions) >= max_pos:
+                        break
+                    
+                    df = self.get_price_series(cand['ts_code'], start_date, date)
+                    if df is not None and len(df) >= 60:
+                        signal = self.check_ma_signal(df)
+                        if signal == 'buy':
+                            price = df.iloc[-1]['close']
+                            qty = int(capital / max_pos / price / 100) * 100
+                            if qty > 0 and capital > price * qty * 1.001:
+                                capital -= price * qty * 1.001
+                                positions.append({'code': cand['ts_code'], 'qty': qty, 'cost': price, 'name': cand.get('name', '')})
+                                trades.append({'date': date, 'code': cand['ts_code'], 'action': 'buy'})
+            
+            # 市值
+            total = capital
+            for pos in positions:
+                price = self.get_latest_price(pos['code'], date)
+                if price:
+                    total += price * pos['qty']
+            
+            if total > peak:
+                peak = total
+            dd = (peak - total) / peak if peak > 0 else 0
+            if dd > max_dd:
+                max_dd = dd
+        
+        # 清仓
+        for pos in positions:
+            price = self.get_latest_price(pos['code'], end_date)
+            if price:
+                capital += price * pos['qty'] * 0.998
+        
+        total_return = (capital - self.initial_capital) / self.initial_capital
+        
+        return {
+            'strategy': strategy_name,
+            'total_return': total_return * 100,
+            'annual_return': total_return * 100 / 5,
+            'max_drawdown': max_dd * 100,
+            'trade_count': len(trades)
+        }
+
+
 def main():
     print("="*70)
     print("📊 多策略回测 (动态选股池)")
@@ -353,17 +487,22 @@ def main():
     engine = DynamicBacktest()
     
     # 测试各个策略
+    # 添加行业分散策略
     strategies = [
         ("均线策略", engine.check_ma_signal),
         ("MACD策略", engine.check_macd_signal),
         ("动量策略", engine.check_momentum_signal),
         ("突破策略", engine.check_breakout_signal),
+        ("行业分散", "industry_diversified"),  # 特殊标记
     ]
     
     results = {'backtest': {}}
     
     for name, func in strategies:
-        result = engine.run(name, func, BACKTEST_START, BACKTEST_END)
+        if isinstance(func, str) and func == "industry_diversified":
+            result = engine.run_industry_diversified(name, BACKTEST_START, BACKTEST_END)
+        else:
+            result = engine.run(name, func, BACKTEST_START, BACKTEST_END)
         results['backtest'][name] = result
     
     # 打印结果
