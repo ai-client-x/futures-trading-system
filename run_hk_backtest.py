@@ -8,6 +8,7 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from src.engines.trading_engine import TradingEngine
+from src.config import config
 
 
 def calculate_signal(df):
@@ -51,7 +52,7 @@ def calculate_signal(df):
 def run_backtest():
     """运行回测"""
     data_dir = "data/hk_daily"
-    initial_capital = 1000000
+    initial_capital = config.initial_capital
     
     # 加载数据
     stocks = {}

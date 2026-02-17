@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """
 A股回测系统 - 使用SQLite数据库
-开发期: 2020-2022
-回测期: 2023-2024
 """
 
 import os
@@ -16,33 +14,34 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import pandas as pd
 import sqlite3
 from src.engines.trading_engine import TradingEngine
+from src.config import config
 
 
 # ============ 配置 ============
 DB_PATH = "data/stocks.db"
 
-# 数据划分
-DEVELOP_START = "20200101"
-DEVELOP_END = "20221231"
+# 数据划分 (从config读取)
+DEVELOP_START = config.develop_start
+DEVELOP_END = config.develop_end
+BACKTEST_START = config.backtest_start
+BACKTEST_END = config.backtest_end
 
-BACKTEST_START = "20230101"
-BACKTEST_END = "20241231"
-
-# 初始资金
-INITIAL_CAPITAL = 1000000
+# 初始资金 (从config读取)
+INITIAL_CAPITAL = config.initial_capital
 
 # 策略参数
-MAX_POSITIONS = 5           # 最大持仓数
-POSITION_SIZE = 0.2          # 单只仓位比例
-STOP_LOSS = -5               # 止损 %
-TAKE_PROFIT = 10             # 止盈 %
-MIN_SIGNAL_SCORE = 20        # 最小信号分数
+MAX_POSITIONS = config.max_positions
+POSITION_SIZE = config.max_position
+STOP_LOSS = config.stop_loss_pct * 100  # 转换为百分比
+TAKE_PROFIT = config.take_profit_pct * 100
+MIN_SIGNAL_SCORE = 20
 
-# 测试股票数量（0表示全部）
-TEST_STOCK_COUNT = 10       # 使用10只热门股票测试
+# 测试股票数量（从config读取）
+TEST_STOCK_COUNT = 10
 
-# 测试股票代码（优先使用这些）
-TEST_STOCK_CODES = [
+# 测试股票代码 (从config读取)
+TEST_STOCK_CODES = [s['code'] + ('.SH' if s['code'].startswith('6') else '.SZ') 
+                   for s in config.stock_pool] if config.stock_pool else [
     '600519.SH', '000858.SZ', '601318.SH', '300750.SZ', '002594.SZ',
     '600036.SH', '600900.SH', '601888.SH', '600276.SH', '000001.SZ'
 ]

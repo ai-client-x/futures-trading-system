@@ -18,16 +18,20 @@ import numpy as np
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# 添加项目路径
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from src.config import config
+
 # ============ 配置 ============
 DB_PATH = "data/stocks.db"
 
-# 回测期间
-DEVELOP_START = "20200101"
-DEVELOP_END = "20221231"
-BACKTEST_START = "20230101"
-BACKTEST_END = "20241231"
+# 回测期间 (从config读取)
+DEVELOP_START = config.develop_start
+DEVELOP_END = config.develop_end
+BACKTEST_START = config.backtest_start
+BACKTEST_END = config.backtest_end
 
-INITIAL_CAPITAL = 1000000
+INITIAL_CAPITAL = config.initial_capital
 
 
 # ============ 交易成本 ============

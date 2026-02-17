@@ -355,10 +355,25 @@ class HybridSignalGenerator:
 
 def test():
     """测试"""
+    import sys
+    import os
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    from src.config import config
+    
     generator = HybridSignalGenerator()
     
-    # 测试几只股票
-    test_codes = ['000858.SZ', '600519.SH', '000651.SZ']
+    # 从数据库获取符合基本面条件的测试股票
+    import sqlite3
+    conn = sqlite3.connect('data/stocks.db')
+    df = pd.read_sql(f"""
+        SELECT ts_code FROM fundamentals
+        WHERE pe > 0 AND pe <= {config.max_pe}
+          AND roe >= {config.min_roe}
+        LIMIT 5
+    """, conn)
+    conn.close()
+    
+    test_codes = df['ts_code'].tolist() if df is not None else ['000858.SZ', '600519.SH']
     
     for code in test_codes:
         print(f"\n{'='*50}")

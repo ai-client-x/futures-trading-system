@@ -20,32 +20,34 @@ import pandas as pd
 import sqlite3
 from src.engines.trading_engine import TradingEngine
 from src.models import Position
+from src.config import config
 
 
 # ============ 配置 ============
 DB_PATH = "data/stocks.db"
 
-# 数据划分
-DEVELOP_START = "20200101"
-DEVELOP_END = "20221231"
-BACKTEST_START = "20230101"
-BACKTEST_END = "20241231"
+# 数据划分 (从config读取)
+DEVELOP_START = config.develop_start
+DEVELOP_END = config.develop_end
+BACKTEST_START = config.backtest_start
+BACKTEST_END = config.backtest_end
 
-INITIAL_CAPITAL = 1000000
+INITIAL_CAPITAL = config.initial_capital
 
-# 测试股票（减少到5只加速）
-TEST_STOCKS = [
+# 测试股票 (从config读取)
+TEST_STOCKS = [s['code'] + ('.SH' if s['code'].startswith('6') else '.SZ') 
+               for s in config.stock_pool] if config.stock_pool else [
     '600519.SH', '000858.SZ', '601318.SH', '300750.SZ', '002594.SZ',
 ]
 
 
 # ============ 交易成本 ============
 class TradingCosts:
-    COMMISSION_RATE = 0.00015
+    COMMISSION_RATE = config.commission_rate
     MIN_COMMISSION = 5
-    STAMP_DUTY_RATE = 0.001
+    STAMP_DUTY_RATE = config.stamp_tax
     TRANSFER_FEE_RATE = 0.00002
-    SLIPPAGE_RATE = 0.0005
+    SLIPPAGE_RATE = config.slippage
     
     @classmethod
     def calc_commission(cls, amount: float) -> float:

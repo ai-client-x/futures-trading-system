@@ -19,35 +19,36 @@ import pandas as pd
 import sqlite3
 from src.engines.trading_engine import TradingEngine
 from src.models import Position
+from src.config import config
 
 
 # ============ 配置 ============
 DB_PATH = "data/stocks.db"
 
-# 测试时间
-START_DATE = "20200101"
-END_DATE = "20241231"
+# 测试时间 (从config读取)
+START_DATE = config.backtest_start
+END_DATE = config.backtest_end
 
-INITIAL_CAPITAL = 1000000
+INITIAL_CAPITAL = config.initial_capital
 
 # 选股参数
-MAX_POSITIONS = 5           # 最大持仓数
-MAX_POSITION_PCT = 0.25      # 单只最大仓位比例
+MAX_POSITIONS = config.max_positions
+MAX_POSITION_PCT = config.max_position
 MIN_TURNOVER = 10000000     # 最小日成交额(1000万)
 MIN_MARKET_CAP = 50e8        # 最小市值(50亿)
 
-# 风控参数
-STOP_LOSS = -5               # 止损
-TAKE_PROFIT = 10             # 止盈
+# 风控参数 (从config读取)
+STOP_LOSS = config.stop_loss_pct * 100
+TAKE_PROFIT = config.take_profit_pct * 100
 
 
 # ============ 交易成本 ============
 class TradingCosts:
-    COMMISSION_RATE = 0.00015
+    COMMISSION_RATE = config.commission_rate
     MIN_COMMISSION = 5
-    STAMP_DUTY_RATE = 0.001
+    STAMP_DUTY_RATE = config.stamp_tax
     TRANSFER_FEE_RATE = 0.00002
-    SLIPPAGE_RATE = 0.0005
+    SLIPPAGE_RATE = config.slippage
     
     @classmethod
     def calc_buy_cost(cls, amount: float) -> float:
