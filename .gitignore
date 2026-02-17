@@ -1,0 +1,6 @@
+futures-system/
+skills/
+data/
+*.db
+__pycache__/
+backtest_results/

@@ -1,0 +1,208 @@
+{
+  "strategies": {
+    "\u8d8b\u52bf\u8ddf\u8e2a": {
+      "name": "\u8d8b\u52bf\u8ddf\u8e2a",
+      "created_at": "2026-02-16T21:22:46.191000",
+      "status": "active",
+      "param_adjust_count": 0,
+      "performance": [
+        {
+          "date": "2026-02-16T21:22:46.194210",
+          "total_return": 66.54,
+          "annual_return": 23.02,
+          "max_drawdown": 25.0,
+          "win_rate": 38.5,
+          "trade_count": 150,
+          "score": 53.616
+        },
+        {
+          "date": "2026-02-16T21:22:46.197390",
+          "total_return": 36.49,
+          "annual_return": 18.25,
+          "max_drawdown": 18.0,
+          "win_rate": 38.0,
+          "trade_count": 75,
+          "score": 49.45
+        }
+      ],
+      "current_params": {
+        "max_positions": 3,
+        "position_size": 0.25,
+        "stop_loss": -7,
+        "take_profit": 15,
+        "min_signal_score": 25
+      }
+    },
+    "\u4ef7\u503c\u6295\u8d44": {
+      "name": "\u4ef7\u503c\u6295\u8d44",
+      "created_at": "2026-02-16T21:22:46.191545",
+      "status": "active",
+      "param_adjust_count": 0,
+      "performance": [
+        {
+          "date": "2026-02-16T21:22:46.194962",
+          "total_return": 40.55,
+          "annual_return": 14.02,
+          "max_drawdown": 20.0,
+          "win_rate": 40.0,
+          "trade_count": 120,
+          "score": 49.216
+        },
+        {
+          "date": "2026-02-16T21:22:46.198178",
+          "total_return": 42.63,
+          "annual_return": 21.32,
+          "max_drawdown": 15.0,
+          "win_rate": 42.0,
+          "trade_count": 70,
+          "score": 53.455999999999996
+        }
+      ],
+      "current_params": {
+        "max_positions": 3,
+        "position_size": 0.3,
+        "stop_loss": -10,
+        "take_profit": 20,
+        "min_signal_score": 20
+      }
+    },
+    "\u52a8\u91cf\u7b56\u7565": {
+      "name": "\u52a8\u91cf\u7b56\u7565",
+      "created_at": "2026-02-16T21:22:46.192498",
+      "status": "active",
+      "param_adjust_count": 0,
+      "performance": [
+        {
+          "date": "2026-02-16T21:22:46.195711",
+          "total_return": 69.21,
+          "annual_return": 23.93,
+          "max_drawdown": 30.0,
+          "win_rate": 35.0,
+          "trade_count": 180,
+          "score": 51.144
+        },
+        {
+          "date": "2026-02-16T21:22:46.199116",
+          "total_return": 35.18,
+          "annual_return": 17.59,
+          "max_drawdown": 22.0,
+          "win_rate": 30.0,
+          "trade_count": 85,
+          "score": 46.822
+        }
+      ],
+      "current_params": {
+        "max_positions": 2,
+        "position_size": 0.2,
+        "stop_loss": -5,
+        "take_profit": 12,
+        "min_signal_score": 30
+      }
+    },
+    "\u7a81\u7834\u7b56\u7565": {
+      "name": "\u7a81\u7834\u7b56\u7565",
+      "created_at": "2026-02-16T21:22:46.193338",
+      "status": "active",
+      "param_adjust_count": 0,
+      "performance": [
+        {
+          "date": "2026-02-16T21:22:46.196494",
+          "total_return": 16.07,
+          "annual_return": 5.55,
+          "max_drawdown": 35.0,
+          "win_rate": 32.0,
+          "trade_count": 117,
+          "score": 33.34
+        },
+        {
+          "date": "2026-02-16T21:22:46.200686",
+          "total_return": 49.21,
+          "annual_return": 24.61,
+          "max_drawdown": 16.0,
+          "win_rate": 40.0,
+          "trade_count": 52,
+          "score": 52.488
+        }
+      ],
+      "current_params": {
+        "max_positions": 2,
+        "position_size": 0.2,
+        "stop_loss": -4,
+        "take_profit": 10,
+        "min_signal_score": 25
+      }
+    },
+    "\u6d4b\u8bd5\u7b56\u7565": {
+      "name": "\u6d4b\u8bd5\u7b56\u7565",
+      "created_at": "2026-02-16T21:16:34.406395",
+      "status": "active",
+      "param_adjust_count": 1,
+      "performance": [
+        {
+          "date": "2026-02-16T21:16:34.406940",
+          "total_return": -8.0,
+          "annual_return": -10.0,
+          "max_drawdown": 15.0,
+          "win_rate": 25,
+          "trade_count": 12,
+          "score": 16.3
+        },
+        {
+          "date": "2026-02-16T21:16:34.407990",
+          "total_return": -12.0,
+          "annual_return": -15.0,
+          "max_drawdown": 25.0,
+          "win_rate": 22,
+          "trade_count": 14,
+          "score": 7.0
+        },
+        {
+          "date": "2026-02-16T21:16:34.409262",
+          "total_return": -6.0,
+          "annual_return": -7.2,
+          "max_drawdown": 20.0,
+          "win_rate": 28,
+          "trade_count": 11,
+          "score": 16.49
+        },
+        {
+          "date": "2026-02-16T21:16:34.411477",
+          "total_return": 5.0,
+          "annual_return": 6.0,
+          "max_drawdown": 10.0,
+          "win_rate": 35,
+          "trade_count": 10,
+          "score": 33.3
+        }
+      ],
+      "current_params": {
+        "stop_loss": -8,
+        "take_profit": 15
+      }
+    },
+    "\u4f18\u5316\u7248\u8d8b\u52bf\u7b56\u7565": {
+      "name": "\u4f18\u5316\u7248\u8d8b\u52bf\u7b56\u7565",
+      "created_at": "2026-02-16T23:05:18.748099",
+      "status": "active",
+      "param_adjust_count": 0,
+      "performance": [
+        {
+          "date": "2026-02-16T23:05:18.748669",
+          "total_return": 83.74,
+          "annual_return": 43.6,
+          "max_drawdown": 12.91,
+          "win_rate": 35.0,
+          "trade_count": 140,
+          "score": 75.42500000000001
+        }
+      ],
+      "current_params": {
+        "max_positions": 3,
+        "stop_loss": -5,
+        "take_profit": 10,
+        "position_size": 0.25
+      }
+    }
+  },
+  "last_update": "2026-02-16T23:05:18.748809"
+}

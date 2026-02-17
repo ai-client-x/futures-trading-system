@@ -1,0 +1,47 @@
+# 配置文件
+# 交易系统配置
+
+market: china_stock
+
+# 初始资金
+initial_capital: 1000000
+
+# 交易成本
+commission_rate: 0.0003  # 佣金万三
+stamp_tax: 0.001          # 印花税千一（卖出）
+slippage: 0.0005          # 滑点万分之五
+
+# 仓位管理
+max_position: 0.3         # 单票最大仓位30%
+max_positions: 5           # 最多持仓股票数
+
+# 风控参数
+max_loss_per_trade: 0.02  # 单笔最大亏损2%
+max_loss_per_day: 0.05    # 单日最大亏损5%
+stop_loss_pct: 0.03       # 止损线3%
+take_profit_pct: 0.06     # 止盈线6%
+
+# 数据源
+data_sources:
+  primary: sina
+  backup: yfinance
+
+# 技术指标参数
+indicators:
+  ma_periods: [5, 10, 20, 60]
+  rsi_period: 14
+  macd: [12, 26, 9]
+  bollinger: [20, 2]
+
+# 股票池
+stock_pool:
+  - code: "600519"
+    name: "贵州茅台"
+  - code: "000858"
+    name: "五粮液"
+  - code: "601318"
+    name: "中国平安"
+  - code: "300750"
+    name: "宁德时代"
+  - code: "002594"
+    name: "比亚迪"
