@@ -30,28 +30,6 @@ BACKTEST_START = config.backtest_start
 BACKTEST_END = config.backtest_end
 
 
-
-def calculate_max_positions(capital: float) -> int:
-    """根据资金量动态计算持仓数量
-    
-    规则:
-    - 10万以下: 2-3只
-    - 10-50万: 3-5只
-    - 50-100万: 5-8只
-    - 100万+: 8-15只
-    """
-    if capital < 100000:
-        return 2
-    elif capital < 500000:
-        return 3
-    elif capital < 1000000:
-        return 5
-    elif capital < 2000000:
-        return 8
-    else:
-        return 10
-
-
 class TradingCosts:
     """交易成本"""
     COMMISSION = config.commission_rate
@@ -222,17 +200,16 @@ class DynamicBacktest:
         return 'hold'
     
     def run(self, strategy_name: str, signal_func, start_date: str, end_date: str) -> Dict:
-        """运行回测 - 支持多持仓"""
+        """运行回测"""
         logger.info(f"运行策略: {strategy_name}")
         
         capital = self.initial_capital
         positions = []  # 多持仓列表
-        max_positions = calculate_max_positions(capital)  # 动态持仓数
         trades = []
-        current_pool = []
+        current_pool = []  # 当前选股池
         last_pool_date = None
         
-        # 最大回撤
+        # 用于计算最大回撤
         peak_value = self.initial_capital
         max_drawdown = 0
         
@@ -245,8 +222,11 @@ class DynamicBacktest:
         """, conn)['trade_date'].tolist()
         conn.close()
         
+        # 每月更新选股池
         for i, date in enumerate(trade_dates):
-            month = date[:6]
+            month = date[:6]  # YYYYMM
+            
+            # 每月更新选股池
             if month != last_pool_date:
                 current_pool = self.get_stock_pool(date)
                 last_pool_date = month
@@ -254,39 +234,46 @@ class DynamicBacktest:
             if not current_pool:
                 continue
             
-            # === 卖出检查 ===
-            to_sell = []
-            for pos in list(positions):
+            # 如果有持仓，检查卖出
+            if positions:
                 df = self.get_price_series(pos['code'], start_date, date)
                 if df is not None and len(df) >= 20:
                     signal = signal_func(df)
                     price = df.iloc[-1]['close']
-                    if (price <= pos['cost'] * (1 - config.stop_loss_pct) or
-                        price >= pos['cost'] * (1 + config.take_profit_pct) or
+                    cost = pos['cost']
+                    
+                    # 止盈止损
+                    if (price <= cost * (1 - config.stop_loss_pct) or  # 3%止损
+                        price >= cost * (1 + config.take_profit_pct) or  # 5%止盈
                         signal == 'sell'):
-                        to_sell.append((pos, price))
+                        
+                        revenue = price * pos['qty'] - TradingCosts.sell_cost(price * pos['qty'])
+                        capital += revenue
+                        trades.append({
+                            'date': date, 'action': 'sell', 'price': price,
+                            'code': pos['code'], 'reason': '止损/止盈/卖出' if signal == 'sell' else '风控'
+                        })
+                        positions = []  # 多持仓列表
             
-            for pos, price in to_sell:
-                revenue = price * pos['qty'] - TradingCosts.sell_cost(price * pos['qty'])
-                capital += revenue
-                trades.append({'date': date, 'action': 'sell', 'price': price, 'code': pos['code'], 'reason': '风控'})
-                positions = [p for p in positions if p['code'] != pos['code']]
-            
-            # === 买入检查 ===
-            if len(positions) < max_positions and capital > 0:
-                alloc = capital / (max_positions - len(positions))
+            # 如果没有持仓，检查买入
+            # 买入检查 (未满仓时)
+            if len(positions) < 3 and capital > 0:
+                # 在选股池中找信号
                 for stock in current_pool[:15]:
-                    if len(positions) >= max_positions:
-                        break
                     code = stock['ts_code']
-                    if any(p['code'] == code for p in positions):
-                        continue
                     df = self.get_price_series(code, start_date, date)
+                    
                     if df is not None and len(df) >= 60:
                         signal = signal_func(df)
                         if signal == 'buy':
                             price = df.iloc[-1]['close']
-                            qty = int(alloc / price / 100) * 100
+                            # 30%仓位
+                            qty = int(capital * 0.3 / price / 100) * 100
+                            
+                            # 跳过已有持仓
+                            if any(p['code'] == code for p in positions):
+                                continue
+                            
                             if qty > 0:
                                 cost = price * qty + TradingCosts.buy_cost(price * qty)
                                 if cost <= capital:
@@ -302,29 +289,35 @@ class DynamicBacktest:
                                         'code': code, 'name': stock.get('name', '')
                                     })
             
-            # === 市值计算 ===
-            total_value = capital
-            for pos in positions:
-                price = self.get_latest_price(pos['code'], date)
-                if price:
-                    total_value += price * pos['qty']
-            
-            if total_value > peak_value:
-                peak_value = total_value
-            drawdown = (peak_value - total_value) / peak_value if peak_value > 0 else 0
-            if drawdown > max_drawdown:
-                max_drawdown = drawdown
-            
+            # 每季度日志
             if (i + 1) % 60 == 0:
-                logger.info(f"{date}: 现金={capital:,.0f}, 持仓={len(positions)}只, 总值={total_value:,.0f}, 回撤={drawdown*100:.1f}%")
+                total_value = capital
+                if positions:
+                    price = self.get_latest_price(pos['code'], date)
+                    if price:
+                        total_value += price * pos['qty']
+                logger.info(f"{date}: 现金={capital:,.0f}, 持仓={len(positions)}只, 总值={total_value:,.0f}")
         
         # 最终清仓
-        for pos in list(positions):
+        for pos in positions:
             df = self.get_price_series(pos['code'], start_date, end_date)
             if df is not None and len(df) > 0:
                 price = df.iloc[-1]['close']
                 capital += price * pos['qty'] - TradingCosts.sell_cost(price * pos['qty'])
         
+        # 计算最大回撤
+        final_value = capital
+        if positions:
+            price = self.get_latest_price(pos['code'], end_date)
+            if price:
+                final_value += price * pos['qty']
+        
+        if final_value > peak_value:
+            peak_value = final_value
+        final_drawdown = (peak_value - final_value) / peak_value
+        max_drawdown = max(max_drawdown, final_drawdown)
+        
+        # 计算收益
         total_return = (capital - self.initial_capital) / self.initial_capital
         years = (datetime.strptime(end_date, '%Y%m%d') - datetime.strptime(start_date, '%Y%m%d')).days / 365
         
