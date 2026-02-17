@@ -23,14 +23,18 @@ import numpy as np
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-DB_PATH = "data/stocks.db"
-INITIAL_CAPITAL = 1000000
+# 添加项目路径并导入config
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from src.config import config
 
-# 回测期间
-DEVELOP_START = "20200101"
-DEVELOP_END = "20221231"  
-BACKTEST_START = "20230101"
-BACKTEST_END = "20241231"
+DB_PATH = "data/stocks.db"
+INITIAL_CAPITAL = config.initial_capital
+
+# 回测期间 (从config读取)
+DEVELOP_START = config.develop_start
+DEVELOP_END = config.develop_end  
+BACKTEST_START = config.backtest_start
+BACKTEST_END = config.backtest_end
 
 
 class TradingCosts:
@@ -59,8 +63,9 @@ class MultiStrategyBacktest:
         self.db_path = DB_PATH
         self.initial_capital = INITIAL_CAPITAL
         
-        # 测试股票池 (模拟基本面筛选后的候选)
-        self.stock_pool = [
+        # 测试股票池 (从config读取，如果为空则使用默认列表)
+        # 这里使用基本面筛选后的候选股票作为默认池
+        default_stocks = [
             '600519.SH', '000858.SZ', '601318.SH', '300750.SZ', '002594.SZ',
             '600036.SH', '600900.SH', '601888.SH', '601319.SH', '601601.SH',
             '000651.SZ', '600887.SH', '603605.SH', '603369.SH', '000538.SZ',
@@ -68,6 +73,12 @@ class MultiStrategyBacktest:
             '603619.SH', '688628.SH', '002714.SZ', '002489.SZ', '002895.SZ',
             '002605.SZ', '002351.SZ', '603008.SH', '002705.SZ', '002832.SZ'
         ]
+        
+        # 从config读取股票池
+        config_stocks = [s['code'] + ('.SH' if s['code'].startswith('6') else '.SZ') 
+                        for s in config.stock_pool] if config.stock_pool else []
+        
+        self.stock_pool = config_stocks if config_stocks else default_stocks
     
     def _conn(self):
         return sqlite3.connect(self.db_path)

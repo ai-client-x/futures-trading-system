@@ -2,7 +2,7 @@
 """
 混合策略回测
 基本面选股 + 技术面交易
-回测期: 2020-2024
+回测期: 从config读取
 """
 
 import os
@@ -22,13 +22,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# 导入config
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from src.config import config
+
 
 class BacktestEngine:
     """回测引擎"""
     
     def __init__(self, db_path: str = "data/stocks.db"):
         self.db_path = db_path
-        self.initial_capital = 1000000  # 100万
+        self.initial_capital = config.initial_capital  # 从config读取
         self.commission_rate = 0.0003  # 万三佣金
         self.stamp_tax = 0.001  # 千一印花税
     

@@ -14,21 +14,23 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import pandas as pd
 import sqlite3
 from src.engines.trading_engine import TradingEngine
+from src.config import config
 
 
 # ============ 配置 ============
 DB_PATH = "data/stocks.db"
 
-# 数据划分
-DEVELOP_START = "20200101"
-DEVELOP_END = "20221231"
-BACKTEST_START = "20230101"
-BACKTEST_END = "20241231"
+# 数据划分 (从config读取)
+DEVELOP_START = config.develop_start
+DEVELOP_END = config.develop_end
+BACKTEST_START = config.backtest_start
+BACKTEST_END = config.backtest_end
 
-INITIAL_CAPITAL = 1000000
+INITIAL_CAPITAL = config.initial_capital
 
-# 测试股票
-TEST_STOCKS = [
+# 测试股票 (从config读取，如果为空则使用默认)
+TEST_STOCKS = [s['code'] + ('.SH' if s['code'].startswith('6') else '.SZ') 
+               for s in config.stock_pool] if config.stock_pool else [
     '600519.SH', '000858.SZ', '601318.SH', '300750.SZ', '002594.SZ',
     '600036.SH', '600900.SH', '601888.SH', '600276.SH', '000001.SZ'
 ]
@@ -37,18 +39,12 @@ TEST_STOCKS = [
 class TradingCosts:
     """交易成本模拟"""
     
-    # 手续费（券商佣金，默认万1.5，有最低5元）
-    COMMISSION_RATE = 0.00015  # 万1.5
+    # 从config读取
+    COMMISSION_RATE = config.commission_rate
     MIN_COMMISSION = 5  # 最低5元
-    
-    # 印花税（卖出时收取，千1）
-    STAMP_DUTY_RATE = 0.001  # 千1
-    
-    # 过户费（万0.2）
-    TRANSFER_FEE_RATE = 0.00002  # 万0.2
-    
-    # 滑点（万5=0.05%）
-    SLIPPAGE_RATE = 0.0005  # 万5
+    STAMP_DUTY_RATE = config.stamp_tax
+    TRANSFER_FEE_RATE = 0.00002  # 过户费万0.2
+    SLIPPAGE_RATE = config.slippage
     
     @classmethod
     def calc_commission(cls, amount: float) -> float:
@@ -82,7 +78,10 @@ print(f"券商佣金: {TradingCosts.COMMISSION_RATE*10000:.1f}‰ (最低¥{Trad
 print(f"印花税:   {TradingCosts.STAMP_DUTY_RATE*1000:.1f}‰ (仅卖出)")
 print(f"过户费:   {TradingCosts.TRANSFER_FEE_RATE*10000:.2f}‰")
 print(f"滑点:     {TradingCosts.SLIPPAGE_RATE*10000:.1f}‰")
-print(f"单笔往返成本: ~0.24%")
+print(f"单笔往返成本: ~{(TradingCosts.COMMISSION_RATE+TradingCosts.STAMP_DUTY_RATE+TradingCosts.TRANSFER_FEE_RATE+TradingCosts.SLIPPAGE_RATE)*100:.2f}%")
+print("="*50)
+print(f"回测期间: {DEVELOP_START}-{DEVELOP_END} (开发期), {BACKTEST_START}-{BACKTEST_END} (回测期)")
+print(f"初始资金: ¥{INITIAL_CAPITAL:,}")
 print("="*50)
 
 
