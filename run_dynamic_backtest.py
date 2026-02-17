@@ -209,6 +209,10 @@ class DynamicBacktest:
         current_pool = []  # 当前选股池
         last_pool_date = None
         
+        # 用于计算最大回撤
+        peak_value = self.initial_capital
+        max_drawdown = 0
+        
         # 获取所有交易日
         conn = self._conn()
         trade_dates = pd.read_sql(f"""
@@ -297,6 +301,18 @@ class DynamicBacktest:
                 price = df.iloc[-1]['close']
                 capital += price * position['qty'] - TradingCosts.sell_cost(price * position['qty'])
         
+        # 计算最大回撤
+        final_value = capital
+        if position:
+            price = self.get_latest_price(position['code'], end_date)
+            if price:
+                final_value += price * position['qty']
+        
+        if final_value > peak_value:
+            peak_value = final_value
+        final_drawdown = (peak_value - final_value) / peak_value
+        max_drawdown = max(max_drawdown, final_drawdown)
+        
         # 计算收益
         total_return = (capital - self.initial_capital) / self.initial_capital
         years = (datetime.strptime(end_date, '%Y%m%d') - datetime.strptime(start_date, '%Y%m%d')).days / 365
@@ -307,6 +323,7 @@ class DynamicBacktest:
             'final_assets': capital,
             'total_return': total_return * 100,
             'annual_return': ((1 + total_return) ** (1/years) - 1) * 100 if years > 0 else 0,
+            'max_drawdown': max_drawdown * 100,
             'trade_count': len(trades)
         }
 
@@ -344,7 +361,7 @@ def main():
     
     total_return = 0
     for name, result in results['backtest'].items():
-        print(f"  {result['strategy']:10s}: 收益={result['total_return']:>7.2f}%, 年化={result['annual_return']:>7.2f}%, 交易={result['trade_count']}")
+        print(f"  {result['strategy']:10s}: 收益={result['total_return']:>7.2f}%, 年化={result['annual_return']:>7.2f}%, 回撤={result['max_drawdown']:.2f}%, 交易={result['trade_count']}")
         total_return += result['total_return']
     
     avg_return = total_return / len(results['backtest'])
