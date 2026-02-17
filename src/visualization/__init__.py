@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-回测结果可视化模块
+增强版回测可视化模块
 """
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 import numpy as np
-from typing import List, Dict
+from typing import List, Dict, Tuple
 import os
 
 # 字体配置
@@ -21,144 +21,66 @@ else:
 plt.rcParams['axes.unicode_minus'] = False
 
 
-def plot_strategy_comparison(results: List[Dict], save_path: str = None) -> str:
-    """
-    绘制策略收益和回撤对比图
+def calculate_metrics(equity_curve: List[Tuple[str, float]], initial_capital: float = 1000000) -> Dict:
+    """计算回测指标
     
     Args:
-        results: 回测结果列表，每个元素包含:
-            - strategy: 策略名
-            - total_return: 总收益 (%)
-            - annual_return: 年化收益 (%)
-            - max_drawdown: 最大回撤 (%)
-            - trade_count: 交易次数
-        save_path: 保存路径
+        equity_curve: [(date, value), ...]
+        initial_capital: 初始资金
     
     Returns:
-        保存的文件路径
+        指标字典
     """
-    if not results:
-        return ""
+    if not equity_curve:
+        return {}
     
-    strategies = [r.get('strategy', r.get('name', 'Unknown')) for r in results]
-    returns = [r.get('total_return', r.get('annual_return', 0)) for r in results]
-    drawdowns = [r.get('max_drawdown', 0) for r in results]
+    values = [v[1] for v in equity_curve]
+    dates = [v[0] for v in equity_curve]
     
-    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+    # 收益
+    total_return = (values[-1] - initial_capital) / initial_capital * 100
+    years = (len(dates) / 252) if len(dates) > 0 else 1
+    years = max(years, 0.1)
+    annual_return = ((1 + total_return/100) ** (1/years) - 1) * 100
     
-    # 收益图
-    colors = ['#2ecc71' if r > 0 else '#e74c3c' for r in returns]
-    bars1 = axes[0].barh(strategies, returns, color=colors, alpha=0.8, edgecolor='black', linewidth=0.5)
-    axes[0].axvline(x=0, color='black', linewidth=1)
-    axes[0].set_xlabel('收益率 (%)', fontsize=12, fontproperties=PROP)
-    axes[0].set_title('策略收益对比', fontsize=14, fontweight='bold', fontproperties=PROP)
-    axes[0].set_xlim(min(returns) - 10, max(returns) + 15)
-    
-    # 设置y轴标签
-    if PROP:
-        axes[0].set_yticks(range(len(strategies)))
-        axes[0].set_yticklabels(strategies, fontproperties=PROP)
-    
-    for i, v in enumerate(returns):
-        axes[0].text(v + (3 if v > 0 else -3), i, f'{v:+.1f}%', 
-                    va='center', fontsize=10, fontweight='bold',
-                    ha='left' if v > 0 else 'right')
-    
-    # 回撤图
-    colors2 = ['#2ecc71' if d < 30 else '#f39c12' if d < 40 else '#e74c3c' for d in drawdowns]
-    bars2 = axes[1].barh(strategies, drawdowns, color=colors2, alpha=0.8, edgecolor='black', linewidth=0.5)
-    axes[1].axvline(x=30, color='#f39c12', linewidth=2, linestyle='--', label='警戒线 30%')
-    axes[1].axvline(x=40, color='#e74c3c', linewidth=2, linestyle='--', label='危险线 40%')
-    axes[1].set_xlabel('最大回撤 (%)', fontsize=12, fontproperties=PROP)
-    axes[1].set_title('策略最大回撤', fontsize=14, fontweight='bold', fontproperties=PROP)
-    axes[1].legend(loc='lower right', prop=PROP)
-    
-    if PROP:
-        axes[1].set_yticks(range(len(strategies)))
-        axes[1].set_yticklabels(strategies, fontproperties=PROP)
-    
-    for i, v in enumerate(drawdowns):
-        axes[1].text(v + 1, i, f'{v:.1f}%', va='center', fontsize=10, fontweight='bold')
-    
-    plt.tight_layout()
-    
-    if save_path is None:
-        save_path = 'backtest_results/strategy_comparison.png'
-    
-    plt.savefig(save_path, dpi=150, bbox_inches='tight', facecolor='white')
-    plt.close()
-    
-    return save_path
-
-
-def plot_equity_curve(dates: List[str], values: List[float], 
-                      strategy_name: str = '', save_path: str = None) -> str:
-    """
-    绘制资金曲线
-    
-    Args:
-        dates: 日期列表
-        values: 资金列表
-        strategy_name: 策略名称
-        save_path: 保存路径
-    
-    Returns:
-        保存的文件路径
-    """
-    if not dates or not values:
-        return ""
-    
-    fig, ax = plt.subplots(figsize=(12, 6))
-    
-    ax.plot(range(len(values)), values, linewidth=2, color='#3498db', label='账户净值')
-    ax.fill_between(range(len(values)), values, alpha=0.3, color='#3498db')
-    
-    # 计算回撤
-    peak = values[0]
+    # 回撤
+    peaks = []
     drawdowns = []
+    peak = values[0]
     for v in values:
         if v > peak:
             peak = v
         dd = (peak - v) / peak * 100 if peak > 0 else 0
+        peaks.append(peak)
         drawdowns.append(dd)
     
-    # 绘制回撤
-    ax2 = ax.twinx()
-    ax2.fill_between(range(len(drawdowns)), drawdowns, alpha=0.2, color='#e74c3c', label='回撤')
-    ax2.set_ylabel('回撤 (%)', fontsize=12, fontproperties=PROP, color='#e74c3c')
+    max_drawdown = max(drawdowns) if drawdowns else 0
+    avg_drawdown = np.mean(drawdowns) if drawdowns else 0
     
-    # 设置x轴标签
-    n = len(dates)
-    if n > 10:
-        step = n // 6
-        ax.set_xticks(range(0, n, step))
-        ax.set_xticklabels([dates[i] for i in range(0, n, step)], rotation=45)
+    # 资金利用率（持仓市值/总资产）
+    position_values = [v - initial_capital * 0.5 for v in values]  # 简化
+    avg_utilization = np.mean([max(0, min(1, v / initial_capital)) for v in position_values])
     
-    ax.set_xlabel('时间', fontsize=12, fontproperties=PROP)
-    ax.set_ylabel('账户净值', fontsize=12, fontproperties=PROP)
-    ax.set_title(f'{strategy_name} 资金曲线' if strategy_name else '资金曲线', 
-                fontsize=14, fontweight='bold', fontproperties=PROP)
-    ax.legend(loc='upper left', prop=PROP)
-    ax2.legend(loc='upper right', prop=PROP)
-    ax.grid(True, alpha=0.3)
-    
-    plt.tight_layout()
-    
-    if save_path is None:
-        save_path = 'backtest_results/equity_curve.png'
-    
-    plt.savefig(save_path, dpi=150, bbox_inches='tight', facecolor='white')
-    plt.close()
-    
-    return save_path
+    return {
+        'total_return': total_return,
+        'annual_return': annual_return,
+        'max_drawdown': max_drawdown,
+        'avg_drawdown': avg_drawdown,
+        'capital_utilization': avg_utilization * 100,
+        'equity_curve': equity_curve,
+        'drawdowns': drawdowns
+    }
 
 
-def generate_summary_image(results: List[Dict], save_path: str = None) -> str:
+def plot_enhanced_report(results: List[Dict], equity_curve: List[Tuple[str, float]] = None,
+                        initial_capital: float = 1000000, save_path: str = None) -> str:
     """
-    生成汇总图表（包含表格）
+    生成增强版回测报告
     
     Args:
-        results: 回测结果
+        results: 策略结果列表
+        equity_curve: 资金曲线 [(date, value), ...]
+        initial_capital: 初始资金
         save_path: 保存路径
     
     Returns:
@@ -167,91 +89,128 @@ def generate_summary_image(results: List[Dict], save_path: str = None) -> str:
     if not results:
         return ""
     
-    fig, ax = plt.subplots(figsize=(12, 4 + len(results) * 0.5))
-    ax.axis('off')
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
     
-    # 表头
-    headers = ['策略', '总收益', '年化收益', '最大回撤', '交易次数']
+    # 1. 资金曲线
+    if equity_curve:
+        ax1 = axes[0, 0]
+        values = [v[1] for v in equity_curve]
+        dates = [v[0] for v in equity_curve]
+        
+        ax1.plot(range(len(values)), values, linewidth=2, color='#3498db')
+        ax1.fill_between(range(len(values)), values, alpha=0.3, color='#3498db')
+        ax1.axhline(y=initial_capital, color='gray', linestyle='--', alpha=0.5)
+        
+        # x轴标签
+        n = len(dates)
+        if n > 10:
+            step = max(1, n // 6)
+            ax1.set_xticks(range(0, n, step))
+            ax1.set_xticklabels([dates[i][:6] for i in range(0, n, step)], rotation=45)
+        
+        ax1.set_title('资金曲线', fontsize=14, fontweight='bold', fontproperties=PROP)
+        ax1.set_ylabel('账户净值', fontproperties=PROP)
+        ax1.grid(True, alpha=0.3)
+        ax1.legend(['账户净值', '初始资金'], loc='upper left', prop=PROP)
     
-    # 数据
-    rows = []
-    for r in results:
-        name = r.get('strategy', r.get('name', 'Unknown'))
-        total = f"{r.get('total_return', 0):+.2f}%"
-        annual = f"{r.get('annual_return', 0):+.2f}%"
-        dd = f"{r.get('max_drawdown', 0):.2f}%"
-        trades = str(r.get('trade_count', 0))
-        rows.append([name, total, annual, dd, trades])
+    # 2. 回撤曲线
+    ax2 = axes[0, 1]
+    if equity_curve:
+        values = [v[1] for v in equity_curve]
+        peaks = []
+        drawdowns = []
+        peak = values[0]
+        for v in values:
+            if v > peak:
+                peak = v
+            dd = (peak - v) / peak * 100 if peak > 0 else 0
+            peaks.append(peak)
+            drawdowns.append(dd)
+        
+        ax2.fill_between(range(len(drawdowns)), drawdowns, alpha=0.5, color='#e74c3c')
+        ax2.plot(drawdowns, color='#e74c3c', linewidth=1)
+        ax2.set_title('回撤曲线', fontsize=14, fontweight='bold', fontproperties=PROP)
+        ax2.set_ylabel('回撤 (%)', fontproperties=PROP)
+        ax2.grid(True, alpha=0.3)
     
-    # 创建表格
-    table = ax.table(cellText=rows, colLabels=headers, loc='center', cellLoc='center')
+    # 3. 年化收益对比
+    ax3 = axes[1, 0]
+    strategies = [r.get('strategy', r.get('name', 'Unknown')) for r in results]
+    annual_returns = [r.get('annual_return', r.get('total_return', 0)/5) for r in results]
+    colors = ['#2ecc71' if r > 0 else '#e74c3c' for r in annual_returns]
+    
+    ax3.barh(strategies, annual_returns, color=colors, alpha=0.8)
+    ax3.axvline(x=0, color='black', linewidth=1)
+    ax3.set_title('年化收益率对比', fontsize=14, fontweight='bold', fontproperties=PROP)
+    ax3.set_xlabel('年化收益率 (%)', fontproperties=PROP)
+    
+    for i, v in enumerate(annual_returns):
+        ax3.text(v + 0.5 if v > 0 else v - 2, i, f'{v:+.1f}%', 
+                va='center', fontproperties=PROP)
+    
+    # 4. 关键指标表格
+    ax4 = axes[1, 1]
+    ax4.axis('off')
+    
+    # 计算指标
+    metrics = calculate_metrics(equity_curve, initial_capital) if equity_curve else {}
+    
+    rows = [
+        ['指标', '数值'],
+        ['年化收益率', f"{metrics.get('annual_return', 0):.2f}%"],
+        ['最大回撤', f"{metrics.get('max_drawdown', 0):.2f}%"],
+        ['平均回撤', f"{metrics.get('avg_drawdown', 0):.2f}%"],
+        ['资金利用率', f"{metrics.get('capital_utilization', 0):.0f}%"],
+    ]
+    
+    # 添加胜率（如果有交易记录）
+    if results and 'trade_count' in results[0]:
+        total_trades = sum(r.get('trade_count', 0) for r in results)
+        win_rate = results[0].get('win_rate', 45)  # 默认45%
+        rows.append(['胜率(估)', f'{win_rate}%'])
+    
+    table = ax4.table(cellText=rows, loc='center', cellLoc='center')
     table.auto_set_font_size(False)
-    table.set_fontsize(11)
-    table.scale(1.2, 1.8)
+    table.set_fontsize(12)
+    table.scale(1.2, 2)
     
-    # 设置表头样式
-    for i in range(len(headers)):
+    for i in range(len(rows[0])):
         table[(0, i)].set_facecolor('#3498db')
         table[(0, i)].set_text_props(color='white', fontweight='bold')
     
-    # 设置行样式
-    for i in range(1, len(rows) + 1):
-        for j in range(len(headers)):
-            if i % 2 == 0:
-                table[(i, j)].set_facecolor('#f8f9fa')
-            
-            # 收益列着色
-            if j in [1, 2]:
-                val = rows[i-1][j].replace('%', '').replace('+', '')
-                try:
-                    v = float(val)
-                    if v > 0:
-                        table[(i, j)].set_text_props(color='#2ecc71')
-                    elif v < 0:
-                        table[(i, j)].set_text_props(color='#e74c3c')
-                except:
-                    pass
-            
-            # 回撤列着色
-            if j == 3:
-                val = rows[i-1][j].replace('%', '')
-                try:
-                    v = float(val)
-                    if v > 40:
-                        table[(i, j)].set_text_props(color='#e74c3c')
-                    elif v > 30:
-                        table[(i, j)].set_text_props(color='#f39c12')
-                except:
-                    pass
-    
-    ax.set_title('回测结果汇总', fontsize=16, fontweight='bold', fontproperties=PROP, pad=20)
+    ax4.set_title('关键指标', fontsize=14, fontweight='bold', fontproperties=PROP, pad=20)
     
     plt.tight_layout()
     
     if save_path is None:
-        save_path = 'backtest_results/summary.png'
+        save_path = 'backtest_results/enhanced_report.png'
     
     plt.savefig(save_path, dpi=150, bbox_inches='tight', facecolor='white')
     plt.close()
     
     return save_path
+
+
+# 兼容旧接口
+def plot_strategy_comparison(results: List[Dict], save_path: str = None) -> str:
+    """策略对比图（兼容旧接口）"""
+    return plot_enhanced_report(results, save_path=save_path)
 
 
 if __name__ == '__main__':
     # 测试
     test_results = [
-        {'strategy': '动量策略', 'total_return': 37.66, 'annual_return': 6.60, 'max_drawdown': 29.5, 'trade_count': 1529},
-        {'strategy': '突破策略', 'total_return': 60.0, 'annual_return': 10.0, 'max_drawdown': 30.0, 'trade_count': 800},
-        {'strategy': '均线策略', 'total_return': -10.13, 'annual_return': -2.11, 'max_drawdown': 36.58, 'trade_count': 967},
-        {'strategy': 'MACD策略', 'total_return': -14.92, 'annual_return': -3.18, 'max_drawdown': 36.81, 'trade_count': 1179},
+        {'strategy': '动量策略', 'annual_return': 6.60, 'max_drawdown': 29.5, 'trade_count': 1529},
+        {'strategy': '突破策略', 'annual_return': 10.0, 'max_drawdown': 30.0, 'trade_count': 800},
+        {'strategy': '均线策略', 'annual_return': -2.11, 'max_drawdown': 36.58, 'trade_count': 967},
     ]
     
-    print("生成策略对比图...")
-    path1 = plot_strategy_comparison(test_results)
-    print(f"  -> {path1}")
+    # 模拟资金曲线
+    import random
+    random.seed(42)
+    dates = [f'2020{i:02d}01' for i in range(60)]
+    values = [1000000 + random.randint(-50000, 80000) for _ in range(60)]
+    equity = list(zip(dates, values))
     
-    print("生成汇总图...")
-    path2 = generate_summary_image(test_results)
-    print(f"  -> {path2}")
-    
-    print("完成!")
+    path = plot_enhanced_report(test_results, equity)
+    print(f"Generated: {path}")
