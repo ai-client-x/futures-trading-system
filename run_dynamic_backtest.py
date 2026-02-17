@@ -208,16 +208,17 @@ class DynamicBacktest:
         return 'hold'
     
     def check_breakout_signal(self, df: pd.DataFrame) -> str:
-        """突破策略信号"""
-        if df is None or len(df) < 25:
+        """突破策略信号 - 均线交叉"""
+        if df is None or len(df) < 20:
             return 'hold'
         
         close = df['close']
-        high20 = close.rolling(20).max()
+        ma5 = close.rolling(5).mean()
+        ma20 = close.rolling(20).mean()
         
-        if close.iloc[-1] > high20.iloc[-2] and close.iloc[-2] <= high20.iloc[-2]:
+        if ma5.iloc[-1] > ma20.iloc[-1]:
             return 'buy'
-        if close.iloc[-1] < close.iloc[-20] * 0.95:
+        if ma5.iloc[-1] < ma20.iloc[-1]:
             return 'sell'
         return 'hold'
     
