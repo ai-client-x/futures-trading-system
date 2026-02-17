@@ -77,20 +77,25 @@ class Config:
     
     # ============ 回测期间 ============
     @property
-    def develop_start(self) -> str:
-        return self.get('backtest.develop_start', '20200101')
-    
-    @property
-    def develop_end(self) -> str:
-        return self.get('backtest.develop_end', '20221231')
-    
-    @property
     def backtest_start(self) -> str:
-        return self.get('backtest.backtest_start', '20230101')
+        return self.get('backtest.start', '20200101')
     
     @property
     def backtest_end(self) -> str:
-        return self.get('backtest.backtest_end', '20241231')
+        return self.get('backtest.end', '20241231')
+    
+    # 兼容旧版本
+    @property
+    def develop_start(self) -> str:
+        return self.backtest_start
+    
+    @property
+    def develop_end(self) -> str:
+        return "20221231"
+    
+    @property
+    def backtest_start_old(self) -> str:
+        return "20230101"
     
     # ============ 交易成本 ============
     @property

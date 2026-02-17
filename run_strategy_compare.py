@@ -30,9 +30,7 @@ from src.config import config
 DB_PATH = "data/stocks.db"
 INITIAL_CAPITAL = config.initial_capital
 
-# 回测期间 (从config读取)
-DEVELOP_START = config.develop_start
-DEVELOP_END = config.develop_end  
+# 回测期间 (统一4年)
 BACKTEST_START = config.backtest_start
 BACKTEST_END = config.backtest_end
 
@@ -254,20 +252,11 @@ class MultiStrategyBacktest:
             ("突破策略", self.breakout_strategy),
         ]
         
-        results = {'develop': {}, 'backtest': {}}
+        results = {'backtest': {}}
         
-        # 开发期
+        # 4年统一回测
         logger.info("=" * 50)
-        logger.info("开发期 (2020-2022)")
-        logger.info("=" * 50)
-        
-        for name, func in strategies:
-            result = self.run_strategy(name, func, DEVELOP_START, DEVELOP_END)
-            results['develop'][name] = result
-        
-        # 回测期
-        logger.info("=" * 50)
-        logger.info("回测期 (2023-2024)")
+        logger.info(f"回测期 ({BACKTEST_START}-{BACKTEST_END})")
         logger.info("=" * 50)
         
         for name, func in strategies:
@@ -279,7 +268,7 @@ class MultiStrategyBacktest:
 
 def main():
     print("="*70)
-    print("📊 多策略对比回测 (2020-2024)")
+    print("📊 多策略对比回测 (4年统一回测)")
     print("="*70)
     print(f"初始资金: ¥{INITIAL_CAPITAL:,}")
     print(f"股票池: 30只基本面候选股")
@@ -291,21 +280,21 @@ def main():
     
     # 打印结果
     print("\n" + "="*70)
-    print("📈 回测结果")
+    print("📈 回测结果 (4年统一回测)")
     print("="*70)
     
-    for period in ['develop', 'backtest']:
-        period_name = '开发期 (2020-2022)' if period == 'develop' else '回测期 (2023-2024)'
-        print(f"\n【{period_name}】")
-        
-        total_return = 0
-        for name, result in results[period].items():
-            print(f"  {result['strategy']:10s}: 收益={result['total_return']:>7.2f}%, 年化={result['annual_return']:>7.2f}%, 交易={result['trade_count']}")
-            total_return += result['total_return']
-        
-        # 综合策略 (平均)
-        avg_return = total_return / len(results[period])
-        print(f"  {'综合策略':10s}: 收益={avg_return:>7.2f}%")
+    period = 'backtest'
+    period_name = f'{BACKTEST_START}-{BACKTEST_END}'
+    print(f"\n【{period_name}】")
+    
+    total_return = 0
+    for name, result in results[period].items():
+        print(f"  {result['strategy']:10s}: 收益={result['total_return']:>7.2f}%, 年化={result['annual_return']:>7.2f}%, 交易={result['trade_count']}")
+        total_return += result['total_return']
+    
+    # 综合策略 (平均)
+    avg_return = total_return / len(results[period])
+    print(f"  {'综合策略':10s}: 收益={avg_return:>7.2f}%")
     
     print("\n" + "="*70)
     

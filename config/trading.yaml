@@ -7,11 +7,12 @@ market: china_stock
 initial_capital: 1000000
 
 # ============ 回测期间 ============
+# 统一4年回测期
 backtest:
-  develop_start: "20200101"  # 开发期开始
-  develop_end: "20221231"    # 开发期结束
-  backtest_start: "20230101" # 回测期开始
-  backtest_end: "20241231"   # 回测期结束
+  start: "20200101"
+  end: "20241231"
+
+# ============ 基本面筛选条件 ============
 
 # ============ 交易成本 ============
 commission_rate: 0.0003  # 佣金万三

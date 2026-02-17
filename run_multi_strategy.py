@@ -20,9 +20,7 @@ from src.config import config
 # ============ 配置 ============
 DB_PATH = "data/stocks.db"
 
-# 数据划分 (从config读取)
-DEVELOP_START = config.develop_start
-DEVELOP_END = config.develop_end
+# 数据划分 (统一4年回测)
 BACKTEST_START = config.backtest_start
 BACKTEST_END = config.backtest_end
 
@@ -80,7 +78,7 @@ print(f"过户费:   {TradingCosts.TRANSFER_FEE_RATE*10000:.2f}‰")
 print(f"滑点:     {TradingCosts.SLIPPAGE_RATE*10000:.1f}‰")
 print(f"单笔往返成本: ~{(TradingCosts.COMMISSION_RATE+TradingCosts.STAMP_DUTY_RATE+TradingCosts.TRANSFER_FEE_RATE+TradingCosts.SLIPPAGE_RATE)*100:.2f}%")
 print("="*50)
-print(f"回测期间: {DEVELOP_START}-{DEVELOP_END} (开发期), {BACKTEST_START}-{BACKTEST_END} (回测期)")
+print(f"回测期间: {BACKTEST_START} ~ {BACKTEST_END} (4年统一回测)")
 print(f"初始资金: ¥{INITIAL_CAPITAL:,}")
 print("="*50)
 
@@ -585,10 +583,7 @@ def main():
     stock_list = get_stock_list()
     print(f"股票数量: {len(stock_list)}")
     
-    # 开发期回测
-    develop_result = run_backtest(stock_list, DEVELOP_START, DEVELOP_END, "开发期")
-    
-    # 回测期
+    # 4年统一回测
     backtest_result = run_backtest(stock_list, BACKTEST_START, BACKTEST_END, "回测期")
     
     # 保存结果
@@ -596,7 +591,6 @@ def main():
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     
     results = {
-        'develop': develop_result,
         'backtest': backtest_result,
         'strategies': [s.name for s in [
             TrendStrategy(), ValueStrategy(), MomentumStrategy(), BreakoutStrategy()
