@@ -41,6 +41,9 @@ STRATEGY_PARAMS = {
 TP1, TP2, TP3 = 0.10, 0.15, 0.20
 SL = 0.05
 
+# 分批止损参数
+SL1, SL2, SL3 = 0.03, 0.05, 0.08  # -3%, -5%, -8%
+
 # ============================================================
 
 # 添加项目路径并导入config
@@ -396,9 +399,17 @@ class DynamicBacktest:
                         sell_qty = int(pos['qty'] * 0.3)
                         reason = '止盈10%卖出30%'
                         pos['tp10_triggered'] = True
-                    elif curr_ret <= -SL:  # 止损5%
+                    elif curr_ret <= -SL3:  # 止损8%清仓
                         sell_qty = pos['qty']
-                        reason = '止损5%'
+                        reason = '止损8%清仓'
+                    elif curr_ret <= -SL2 and not pos.get('sl5_triggered', False):
+                        sell_qty = int(pos['qty'] * 0.6)
+                        reason = '止损5%卖出60%'
+                        pos['sl5_triggered'] = True
+                    elif curr_ret <= -SL1 and not pos.get('sl3_triggered', False):
+                        sell_qty = int(pos['qty'] * 0.3)
+                        reason = '止损3%卖出30%'
+                        pos['sl3_triggered'] = True
                     elif signal == 'sell':  # 死叉卖出
                         sell_qty = pos['qty']
                         reason = '死叉卖出'
@@ -480,9 +491,11 @@ class DynamicBacktest:
                             pos['qty'] += add_qty
                             pos['cost'] = total_cost / pos['qty']
                             pos['layers'] = pos.get('layers', 1) + 1
-                            # 重置止盈触发状态
+                            # 重置止盈止损触发状态
                             pos['tp10_triggered'] = False
                             pos['tp15_triggered'] = False
+                            pos['sl3_triggered'] = False
+                            pos['sl5_triggered'] = False
                             trades.append({'date': date, 'action': 'add', 'code': pos['code'], 'reason': f'{current_regime.value}加仓'})
             
             # === 市值计算 ===
@@ -637,6 +650,8 @@ class DynamicBacktest:
                                     'layers': 1,
                                     'tp10_triggered': False,
                                     'tp15_triggered': False,
+                                    'sl3_triggered': False,  # -3%止损触发
+                                    'sl5_triggered': False,  # -5%止损触发
                                 })
                                 trades.append({'date': date, 'code': cand['ts_code'], 'action': 'buy'})
             
