@@ -2,6 +2,9 @@
 """
 多策略对比回测 - 动态选股池版
 模拟实盘：每日/每周检查选股池，动态更新
+
+更新历史:
+- 2026-02-18: 添加自适应市场状态功能、分批止盈、金字塔加仓
 """
 
 import os
@@ -11,12 +14,34 @@ import sqlite3
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
+from enum import Enum
 
 import pandas as pd
 import numpy as np
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+# ============================================================
+# 自适应市场状态功能 - 2026-02-18 添加
+# ============================================================
+class MarketRegime(Enum):
+    BULL = "bull"      # 牛市
+    BEAR = "bear"      # 熊市
+    SIDEWAYS = "sideways"  # 震荡市
+
+# 策略参数配置
+STRATEGY_PARAMS = {
+    MarketRegime.BULL: {'add_on_rise': 0.05, 'max_layers': 2, 'add_ratio': [0.5, 1.0]},
+    MarketRegime.BEAR: {'add_on_drop': 0.05, 'max_layers': 2, 'add_ratio': [1.0, 0.5]},
+    MarketRegime.SIDEWAYS: {'add_on_drop': 0.08, 'max_layers': 1, 'add_ratio': [0.5]},
+}
+
+# 止盈止损参数
+TP1, TP2, TP3 = 0.10, 0.15, 0.20
+SL = 0.05
+
+# ============================================================
 
 # 添加项目路径并导入config
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -157,6 +182,48 @@ class DynamicBacktest:
         
         return df.to_dict('records')
     
+    def get_market_regime(self, date: str) -> MarketRegime:
+        """根据个股多头比例判断市场状态"""
+        conn = self._conn()
+        
+        # 获取当天有数据的股票
+        df = pd.read_sql(f"""
+            SELECT ts_code FROM daily 
+            WHERE trade_date = '{date}'
+        """, conn)
+        
+        if len(df) < 10:
+            conn.close()
+            return MarketRegime.SIDEWAYS
+        
+        # 随机选20只股票计算多头比例
+        sample_codes = df.sample(min(20, len(df)), random_state=hash(date) % 1000000)['ts_code'].tolist()
+        
+        bullish_count = 0
+        for code in sample_codes:
+            price_df = pd.read_sql(f"""
+                SELECT close FROM daily 
+                WHERE ts_code = '{code}' AND trade_date <= '{date}'
+                ORDER BY trade_date DESC LIMIT 60
+            """, conn)
+            
+            if len(price_df) >= 60:
+                ma5 = price_df['close'].iloc[-5:].mean()
+                ma20 = price_df['close'].iloc[-20:].mean()
+                if ma5 > ma20:
+                    bullish_count += 1
+        
+        conn.close()
+        
+        ratio = bullish_count / len(sample_codes)
+        
+        if ratio >= 0.6:
+            return MarketRegime.BULL
+        elif ratio <= 0.3:
+            return MarketRegime.BEAR
+        else:
+            return MarketRegime.SIDEWAYS
+    
     def get_price_series(self, code: str, start: str, end: str) -> Optional[pd.DataFrame]:
         """获取价格序列"""
         conn = self._conn()
@@ -290,6 +357,12 @@ class DynamicBacktest:
                 current_pool = self.get_stock_pool(date)
                 last_pool_date = month
             
+            # === 市场状态检测 (每10天检测一次) ===
+            if i % 10 == 0:
+                current_regime = self.get_market_regime(date)
+            else:
+                current_regime = current_regime if 'current_regime' in dir() else MarketRegime.SIDEWAYS
+            
             if not current_pool:
                 continue
             
@@ -304,30 +377,48 @@ class DynamicBacktest:
                 if df is not None and len(df) >= 20:
                     signal = signal_func(df)
                     price = df.iloc[-1]['close']
-                    stop_triggered = price <= pos['cost'] * (1 - config.stop_loss_pct)
-                    profit_triggered = price >= pos['cost'] * (1 + config.take_profit_pct)
-                    signal_sell = signal == 'sell'
                     
-                    if stop_triggered or profit_triggered or signal_sell:
-                        reason = []
-                        if stop_triggered:
-                            reason.append('止损')
-                        if profit_triggered:
-                            reason.append('止盈')
-                        if signal_sell:
-                            reason.append('信号')
-                        # 添加日志
-                        import logging
-                        logging.info(f"{date} 卖出 {pos['code']}: 价格={price:.2f}, 成本={pos['cost']:.2f}, 原因={','.join(reason)}")
-                        to_sell.append((pos, price))
+                    # 计算当前收益率
+                    curr_ret = (price - pos['cost']) / pos['cost']
+                    
+                    # 分批止盈检测（每个止盈点只触发一次）
+                    sell_qty = 0
+                    reason = ''
+                    
+                    if curr_ret >= TP3:  # 涨20%清仓
+                        sell_qty = pos['qty']
+                        reason = '止盈20%清仓'
+                    elif curr_ret >= TP2 and not pos.get('tp15_triggered', False):
+                        sell_qty = int(pos['qty'] * 0.6)
+                        reason = '止盈15%卖出60%'
+                        pos['tp15_triggered'] = True
+                    elif curr_ret >= TP1 and not pos.get('tp10_triggered', False):
+                        sell_qty = int(pos['qty'] * 0.3)
+                        reason = '止盈10%卖出30%'
+                        pos['tp10_triggered'] = True
+                    elif curr_ret <= -SL:  # 止损5%
+                        sell_qty = pos['qty']
+                        reason = '止损5%'
+                    elif signal == 'sell':  # 死叉卖出
+                        sell_qty = pos['qty']
+                        reason = '死叉卖出'
+                    
+                    if sell_qty > 0:
+                        logging.info(f"{date} 卖出 {pos['code']}: 价格={price:.2f}, 成本={pos['cost']:.2f}, 原因={reason}")
+                        to_sell.append((pos, price, sell_qty, reason))
             
-            for pos, price in to_sell:
-                revenue = price * pos['qty'] - TradingCosts.sell_cost(price * pos['qty'])
-                cost = pos['cost'] * pos['qty']
-                pnl = revenue - cost  # 盈亏
+            for pos, price, sell_qty, reason in to_sell:
+                revenue = price * sell_qty - TradingCosts.sell_cost(price * sell_qty)
+                cost = pos['cost'] * sell_qty
+                pnl = revenue - cost
                 capital += revenue
-                trades.append({'date': date, 'action': 'sell', 'price': price, 'code': pos['code'], 'reason': '风控', 'pnl': pnl})
-                positions = [p for p in positions if p['code'] != pos['code']]
+                trades.append({'date': date, 'action': 'sell', 'price': price, 'code': pos['code'], 'reason': reason, 'pnl': pnl})
+                # 如果只是部分卖出，更新持仓数量
+                remaining = pos['qty'] - sell_qty
+                if remaining > 0:
+                    pos['qty'] = remaining
+                else:
+                    positions = [p for p in positions if p['code'] != pos['code']]
             
             # === 买入检查 ===
             if len(positions) < max_positions and capital > 0:
@@ -358,6 +449,41 @@ class DynamicBacktest:
                                         'date': date, 'action': 'buy', 'price': price,
                                         'code': code, 'name': stock.get('name', '')
                                     })
+            
+            # === 根据市场状态加仓 ===
+            params = STRATEGY_PARAMS[current_regime]
+            for pos in positions:
+                if pos.get('layers', 1) >= params['max_layers']:
+                    continue
+                
+                df = self.get_price_series(pos['code'], start_date, date)
+                if df is not None and len(df) >= 60:
+                    curr_price = df.iloc[-1]['close']
+                    ret = (curr_price - pos['cost']) / pos['cost']
+                    
+                    should_add = False
+                    if current_regime == MarketRegime.BULL:
+                        should_add = ret >= params['add_on_rise']
+                    elif current_regime == MarketRegime.BEAR:
+                        should_add = ret <= -params['add_on_drop']
+                    else:
+                        should_add = ret <= -params['add_on_drop']
+                    
+                    if should_add:
+                        layer_idx = pos.get('layers', 1) - 1
+                        add_ratio = params['add_ratio'][min(layer_idx, len(params['add_ratio'])-1)]
+                        add_qty = int(pos['qty'] * add_ratio)
+                        
+                        if add_qty > 0 and capital > curr_price * add_qty * 1.001:
+                            capital -= curr_price * add_qty * 1.001
+                            total_cost = pos['cost'] * pos['qty'] + curr_price * add_qty
+                            pos['qty'] += add_qty
+                            pos['cost'] = total_cost / pos['qty']
+                            pos['layers'] = pos.get('layers', 1) + 1
+                            # 重置止盈触发状态
+                            pos['tp10_triggered'] = False
+                            pos['tp15_triggered'] = False
+                            trades.append({'date': date, 'action': 'add', 'code': pos['code'], 'reason': f'{current_regime.value}加仓'})
             
             # === 市值计算 ===
             total_value = capital
@@ -503,7 +629,15 @@ class DynamicBacktest:
                             qty = int(capital / max_pos / price / 100) * 100
                             if qty > 0 and capital > price * qty * 1.001:
                                 capital -= price * qty * 1.001
-                                positions.append({'code': cand['ts_code'], 'qty': qty, 'cost': price, 'name': cand.get('name', '')})
+                                positions.append({
+                                    'code': cand['ts_code'], 
+                                    'qty': qty, 
+                                    'cost': price, 
+                                    'name': cand.get('name', ''),
+                                    'layers': 1,
+                                    'tp10_triggered': False,
+                                    'tp15_triggered': False,
+                                })
                                 trades.append({'date': date, 'code': cand['ts_code'], 'action': 'buy'})
             
             # 市值
