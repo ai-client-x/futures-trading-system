@@ -34,5 +34,50 @@ max_positions: 5
 slippage: 0.0005
 stamp_tax: 0.001
 stock_pool: []
-stop_loss_pct: 0.01
-take_profit_pct: 0.02
+# 自适应市场状态的交易策略
+# 根据大盘均线判断市场状态，采用不同加仓策略
+
+# 止损止盈
+stop_loss_pct: 0.05   # 止损5%
+take_profit_pct: 0.10  # 止盈10%
+
+# 市场状态检测（用于判断大盘牛熊）
+market_regime:
+  enabled: true
+  # 用沪深300或上证指数（如果没有指数数据，用个股多头比例代替）
+  index_code: "000001.SH"  
+  fast_ma: 5
+  slow_ma: 20
+  trend_ma: 60
+  # 备用方案：用个股多头比例
+  use_stock_ratio: true
+  bullish_threshold: 0.6  # 60%个股多头则为牛市
+
+# 不同市场状态的加仓策略
+strategies:
+  # 牛市：倒金字塔加仓（越涨越买）
+  bull:
+    add_on_rise: 0.05   # 上涨5%加仓
+    max_layers: 2       # 最多加仓2次
+    add_ratio: [0.5, 1.0]  # 第一次加50%仓位，第二次加100%
+  
+  # 熊市：金字塔加仓（越跌越买）
+  bear:
+    add_on_drop: 0.05   # 下跌5%加仓
+    max_layers: 2
+    add_ratio: [1.0, 0.5]  # 第一次加100%，第二次加50%
+  
+  # 震荡市：减少交易，等待信号
+  sideways:
+    add_on_drop: 0.08   # 下跌8%才加仓
+    max_layers: 1
+    add_ratio: [0.5]
+
+# 分批止盈
+partial_take_profit:
+  - threshold: 0.10    # 涨10%
+    ratio: 0.30         # 卖出30%
+  - threshold: 0.15    # 涨15%
+    ratio: 0.30         # 卖出30%
+  - threshold: 0.20    # 涨20%
+    ratio: 0.40         # 清仓
