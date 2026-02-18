@@ -273,6 +273,7 @@ class DynamicBacktest:
         # 最大回撤
         peak_value = self.initial_capital
         max_drawdown = 0
+        equity_curve = []  # 资金曲线
         
         # 获取所有交易日
         conn = self._conn()
@@ -293,21 +294,39 @@ class DynamicBacktest:
                 continue
             
             # === 卖出检查 ===
+            import logging
+            if positions:
+                logging.info(f"{date} 检查卖出: 持仓={len(positions)}只")
+            
             to_sell = []
             for pos in list(positions):
                 df = self.get_price_series(pos['code'], start_date, date)
                 if df is not None and len(df) >= 20:
                     signal = signal_func(df)
                     price = df.iloc[-1]['close']
-                    if (price <= pos['cost'] * (1 - config.stop_loss_pct) or
-                        price >= pos['cost'] * (1 + config.take_profit_pct) or
-                        signal == 'sell'):
+                    stop_triggered = price <= pos['cost'] * (1 - config.stop_loss_pct)
+                    profit_triggered = price >= pos['cost'] * (1 + config.take_profit_pct)
+                    signal_sell = signal == 'sell'
+                    
+                    if stop_triggered or profit_triggered or signal_sell:
+                        reason = []
+                        if stop_triggered:
+                            reason.append('止损')
+                        if profit_triggered:
+                            reason.append('止盈')
+                        if signal_sell:
+                            reason.append('信号')
+                        # 添加日志
+                        import logging
+                        logging.info(f"{date} 卖出 {pos['code']}: 价格={price:.2f}, 成本={pos['cost']:.2f}, 原因={','.join(reason)}")
                         to_sell.append((pos, price))
             
             for pos, price in to_sell:
                 revenue = price * pos['qty'] - TradingCosts.sell_cost(price * pos['qty'])
+                cost = pos['cost'] * pos['qty']
+                pnl = revenue - cost  # 盈亏
                 capital += revenue
-                trades.append({'date': date, 'action': 'sell', 'price': price, 'code': pos['code'], 'reason': '风控'})
+                trades.append({'date': date, 'action': 'sell', 'price': price, 'code': pos['code'], 'reason': '风控', 'pnl': pnl})
                 positions = [p for p in positions if p['code'] != pos['code']]
             
             # === 买入检查 ===
@@ -353,6 +372,9 @@ class DynamicBacktest:
             if drawdown > max_drawdown:
                 max_drawdown = drawdown
             
+            # 记录资金曲线
+            equity_curve.append((date, total_value))
+            
             if (i + 1) % 60 == 0:
                 logger.info(f"{date}: 现金={capital:,.0f}, 持仓={len(positions)}只, 总值={total_value:,.0f}, 回撤={drawdown*100:.1f}%")
         
@@ -366,6 +388,43 @@ class DynamicBacktest:
         total_return = (capital - self.initial_capital) / self.initial_capital
         years = (datetime.strptime(end_date, '%Y%m%d') - datetime.strptime(start_date, '%Y%m%d')).days / 365
         
+        # 计算增强统计
+        # 1. 胜率
+        sells = [t for t in trades if t.get('action') == 'sell']
+        if sells:
+            wins = sum(1 for t in sells if t.get('pnl', 0) > 0)
+            win_rate = wins / len(sells) * 100
+        else:
+            win_rate = 0
+        
+        # 2. 平均回撤
+        if equity_curve:
+            values = [e[1] for e in equity_curve]
+            peaks = []
+            drawdowns = []
+            peak = values[0]
+            for v in values:
+                if v > peak:
+                    peak = v
+                dd = (peak - v) / peak * 100 if peak > 0 else 0
+                drawdowns.append(dd)
+            avg_drawdown = np.mean(drawdowns) if drawdowns else 0
+        else:
+            avg_drawdown = 0
+        
+        # 3. 资金利用率
+        if equity_curve and len(equity_curve) > 1:
+            utils = []
+            for i in range(1, len(equity_curve)):
+                prev = equity_curve[i-1][1]
+                curr = equity_curve[i][1]
+                if prev > 0:
+                    util = abs((prev - self.initial_capital) / prev)
+                    utils.append(util * 100)
+            capital_utilization = np.mean(utils) if utils else 0
+        else:
+            capital_utilization = 0
+        
         return {
             'strategy': strategy_name,
             'initial_capital': self.initial_capital,
@@ -373,6 +432,9 @@ class DynamicBacktest:
             'total_return': total_return * 100,
             'annual_return': ((1 + total_return) ** (1/years) - 1) * 100 if years > 0 else 0,
             'max_drawdown': max_drawdown * 100,
+            'avg_drawdown': avg_drawdown,
+            'capital_utilization': capital_utilization,
+            'win_rate': win_rate,
             'trade_count': len(trades)
         }
 

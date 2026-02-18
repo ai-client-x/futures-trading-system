@@ -34,5 +34,5 @@ max_positions: 5
 slippage: 0.0005
 stamp_tax: 0.001
 stock_pool: []
-stop_loss_pct: 0.01
-take_profit_pct: 0.02
+stop_loss_pct: 0.03
+take_profit_pct: 0.08
