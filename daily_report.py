@@ -33,7 +33,7 @@ def generate_daily_report():
     logger.info(f"生成每日简报: {today.strftime('%Y-%m-%d')}")
     
     # 2. 获取选股信号
-    from run_hybrid_strategy import HybridStrategy
+    from src.strategies.hybrid_strategy import HybridStrategy
     
     strategy = HybridStrategy()
     signals = strategy.get_buy_signals(
