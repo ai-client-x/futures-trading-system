@@ -799,3 +799,169 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+# ============================================================
+# 向量化回测引擎 - 2026-02-19 添加
+# 使用NumPy向量化操作，大幅提升回测速度
+# ============================================================
+class VectorizedBacktest:
+    """向量化回测引擎"""
+    
+    def __init__(self):
+        self.db_path = DB_PATH
+        self.initial_capital = INITIAL_CAPITAL
+        
+    def load_data(self, start_date, end_date):
+        """预加载所有数据到内存"""
+        import time
+        t0 = time.time()
+        
+        conn = sqlite3.connect(self.db_path)
+        
+        # 加载日线数据
+        df = pd.read_sql(f"""
+            SELECT ts_code, trade_date, close FROM daily
+            WHERE trade_date >= '{start_date}' AND trade_date <= '{end_date}'
+            ORDER BY ts_code, trade_date
+        """, conn)
+        
+        # 加载基本面
+        funds = pd.read_sql("""
+            SELECT ts_code FROM fundamentals
+            WHERE pe > 0 AND pe < 25 AND roE > 10
+        """, conn)['ts_code'].tolist()
+        
+        conn.close()
+        
+        # 日期索引
+        dates = sorted(df['trade_date'].unique())
+        date_idx = {d: i for i, d in enumerate(dates)}
+        
+        # 转numpy数组
+        stocks = {}
+        for ts_code, group in df.groupby('ts_code'):
+            arr = group[['trade_date', 'close']].values
+            prices = np.zeros(len(dates))
+            for td, cl in arr:
+                if td in date_idx:
+                    prices[date_idx[td]] = cl
+            # forward fill
+            last = 0
+            for i in range(len(prices)):
+                if prices[i] == 0:
+                    prices[i] = last
+                else:
+                    last = prices[i]
+            stocks[ts_code] = prices
+        
+        print(f"向量化加载: {len(stocks)}只股, {len(dates)}天, 耗时{time.time()-t0:.1f}秒")
+        
+        return stocks, dates, funds
+    
+    def run(self, tp=0.30, sl=0.08, max_candidates=20):
+        """运行向量化回测
+        
+        策略:
+        - 金叉买入
+        - 死叉/止盈/止损卖出
+        - 每月更新候选池
+        - 波动率/涨幅过滤
+        """
+        stocks, dates, funds = self.load_data(BACKTEST_START, BACKTEST_END)
+        
+        capital = self.initial_capital
+        positions = {}
+        trades = 0
+        
+        for i, date in enumerate(dates):
+            # ===== 卖出 =====
+            to_del = []
+            for code, (cost, qty) in positions.items():
+                price = stocks[code][i]
+                if price == 0:
+                    continue
+                
+                ret = (price - cost) / cost
+                
+                # 卖出条件: 止盈/止损/死叉
+                if ret > tp or ret < -sl or (i >= 20 and stocks[code][i-5] < stocks[code][i-20]):
+                    capital += price * qty * 0.998
+                    to_del.append(code)
+                    trades += 1
+            
+            for code in to_del:
+                del positions[code]
+            
+            # ===== 买入 =====
+            if len(positions) < 3 and capital > 50000:
+                # 每月更新候选池
+                if i % 20 == 0:
+                    candidates = []
+                    for code in funds[:max_candidates * 2]:
+                        if code in positions:
+                            continue
+                        if i < 60 or stocks[code][i-1] == 0:
+                            continue
+                        
+                        # 波动率过滤
+                        vol = np.std(stocks[code][i-60:i]) / np.mean(stocks[code][i-60:i])
+                        if vol > 0.10:
+                            continue
+                        
+                        # 涨幅过滤
+                        ret60 = (stocks[code][i-1] - stocks[code][i-60]) / stocks[code][i-60]
+                        if ret60 > 0.50:
+                            continue
+                        
+                        # 金叉
+                        if stocks[code][i-5] > stocks[code][i-20] and stocks[code][i-6] <= stocks[code][i-21]:
+                            candidates.append(code)
+                    
+                    candidates = candidates[:max_candidates]
+                
+                # 买入
+                for code in candidates[:3 - len(positions)]:
+                    if code in positions:
+                        continue
+                    if stocks[code][i] == 0:
+                        continue
+                    
+                    price = stocks[code][i]
+                    qty = int(capital / 3 / price / 100) * 100
+                    if qty > 0:
+                        capital -= price * qty * 1.001
+                        positions[code] = (price, qty)
+                        trades += 1
+        
+        # 计算最终资金
+        final = capital
+        for code, (cost, qty) in positions.items():
+            final += stocks[code][-1] * qty
+        
+        total_return = (final - self.initial_capital) / self.initial_capital * 100
+        annual_return = (1 + total_return / 100) ** 0.25 - 1
+        
+        return {
+            'total_return': total_return,
+            'annual_return': annual_return * 100,
+            'final_value': final,
+            'trade_count': trades
+        }
+
+
+def main_vectorized():
+    """向量化回测主函数"""
+    print("\n" + "="*70)
+    print("向量化回测引擎")
+    print("="*70)
+    
+    engine = VectorizedBacktest()
+    result = engine.run(tp=0.30, sl=0.08, max_candidates=20)
+    
+    print(f"\n结果:")
+    print(f"  最终资金: {result['final_value']:,.0f}")
+    print(f"  总收益: {result['total_return']:.2f}%")
+    print(f"  年化收益: {result['annual_return']:.2f}%")
+    print(f"  交易次数: {result['trade_count']}")
+    print("="*70)
