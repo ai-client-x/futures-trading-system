@@ -7,7 +7,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from run_hybrid_strategy import HybridStrategy
+from src.strategies.hybrid_strategy import HybridStrategy
 from src.notify import FeishuNotifier
 
 def generate_morning_report():
@@ -24,7 +24,7 @@ def generate_morning_report():
         min_dv_ratio=1, 
         max_debt=70, 
         min_market_cap=30, 
-        hybrid_mode='strict'
+        hybrid_mode='fundamental_only'
     )
     
     # 生成消息

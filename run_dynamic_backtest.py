@@ -360,8 +360,8 @@ class DynamicBacktest:
                 current_pool = self.get_stock_pool(date)
                 last_pool_date = month
             
-            # === 市场状态检测 (每10天检测一次) ===
-            if i % 10 == 0:
+            # === 市场状态检测 (每周检测一次) ===
+            if i % 5 == 0:
                 current_regime = self.get_market_regime(date)
             else:
                 current_regime = current_regime if 'current_regime' in dir() else MarketRegime.SIDEWAYS
