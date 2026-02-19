@@ -690,6 +690,131 @@ class DynamicBacktest:
         
         return 'hold'
     
+    # ============ 特殊策略 - 2026-02-19 添加 ============
+    def check_support_resistance_signal(self, df: pd.DataFrame) -> str:
+        """支撑阻力策略
+        买入条件: 价格触及支撑位(20日低点)
+        卖出条件: 跌破支撑或触及阻力位
+        """
+        if df is None or len(df) < 30:
+            return 'hold'
+        
+        close = df['close']
+        
+        # 20日低点支撑
+        low_20 = close.rolling(20).min()
+        # 20日高点阻力
+        high_20 = close.rolling(20).max()
+        
+        # 触及支撑买入
+        if close.iloc[-1] <= low_20.iloc[-1] * 1.02:
+            return 'buy'
+        
+        # 触及阻力卖出
+        if close.iloc[-1] >= high_20.iloc[-1] * 0.98:
+            return 'sell'
+        
+        return 'hold'
+    
+    def check_volatility_breakout_signal(self, df: pd.DataFrame) -> str:
+        """波动率突破策略
+        买入条件: 波动率扩大突破
+        卖出条件: 波动率收窄或止盈止损
+        """
+        if df is None or len(df) < 30:
+            return 'hold'
+        
+        close = df['close']
+        
+        # 计算20日波动率
+        vol = close.rolling(20).std() / close.rolling(20).mean()
+        
+        # 波动率扩大
+        if vol.iloc[-1] > vol.iloc[-10] * 1.5:
+            return 'buy'
+        
+        # 波动率收窄卖出
+        if vol.iloc[-1] < vol.iloc[-5]:
+            return 'sell'
+        
+        return 'hold'
+    
+    def check_ma_cross_strength_signal(self, df: pd.DataFrame) -> str:
+        """均线交叉强度策略
+        买入条件: MA5大幅上穿MA20 (>5%)
+        卖出条件: MA5下穿MA20或止盈止损
+        """
+        if df is None or len(df) < 30:
+            return 'hold'
+        
+        close = df['close']
+        ma5 = close.rolling(5).mean()
+        ma20 = close.rolling(20).mean()
+        
+        # 强金叉
+        cross_strength = (ma5.iloc[-1] - ma20.iloc[-1]) / ma20.iloc[-1]
+        
+        if cross_strength > 0.05:  # 5%以上
+            return 'buy'
+        
+        if cross_strength < 0:  # 死叉
+            return 'sell'
+        
+        return 'hold'
+    
+    def check_close_to_ma_signal(self, df: pd.DataFrame) -> str:
+        """收盘价与均线关系策略
+        买入条件: 收盘价站上所有均线 (5,10,20,60)
+        卖出条件: 收盘跌破短期均线
+        """
+        if df is None or len(df) < 60:
+            return 'hold'
+        
+        close = df['close']
+        ma5 = close.rolling(5).mean()
+        ma10 = close.rolling(10).mean()
+        ma20 = close.rolling(20).mean()
+        
+        # 站上所有均线
+        if close.iloc[-1] > ma5.iloc[-1] > ma10.iloc[-1] > ma20.iloc[-1]:
+            return 'buy'
+        
+        # 跌破MA5
+        if close.iloc[-1] < ma5.iloc[-1]:
+            return 'sell'
+        
+        return 'hold'
+    
+    def check_rsi_trend_signal(self, df: pd.DataFrame) -> str:
+        """RSI趋势策略
+        买入条件: RSI从超卖区域回升
+        卖出条件: RSI进入超买区域
+        """
+        if df is None or len(df) < 30:
+            return 'hold'
+        
+        close = df['close']
+        
+        delta = close.diff()
+        gain = delta.where(delta > 0, 0)
+        loss = (-delta).where(delta < 0, 0)
+        
+        avg_gain = gain.rolling(14).mean()
+        avg_loss = loss.rolling(14).mean()
+        
+        rs = avg_gain / avg_loss
+        rsi = 100 - (100 / (1 + rs))
+        
+        # RSI从超卖回升
+        if rsi.iloc[-1] > 30 and rsi.iloc[-2] < 30:
+            return 'buy'
+        
+        # RSI进入超买
+        if rsi.iloc[-1] > 70:
+            return 'sell'
+        
+        return 'hold'
+    
     def check_volume_breakout_signal(self, df: pd.DataFrame) -> str:
         """成交量突破策略
         买入条件: 成交量突破20日均量1.5倍
@@ -1092,7 +1217,7 @@ def main():
     
     engine = DynamicBacktest()
     
-    # 测试各个策略 - 2026-02-19 完整策略列表
+    # 测试各个策略 - 2026-02-19 最全策略列表
     strategies = [
         # 原有策略
         ("均线策略", engine.check_ma_signal),
@@ -1113,6 +1238,12 @@ def main():
         ("双底形态", engine.check_double_bottom_signal),
         ("均线发散", engine.check_ma_golden_fan_signal),
         ("平台突破", engine.check_break_platform_signal),
+        # 更多策略
+        ("支撑阻力", engine.check_support_resistance_signal),
+        ("波动率突破", engine.check_volatility_breakout_signal),
+        ("均线交叉强度", engine.check_ma_cross_strength_signal),
+        ("收盘站均线", engine.check_close_to_ma_signal),
+        ("RSI趋势", engine.check_rsi_trend_signal),
     ]
     
     results = {'backtest': {}}
