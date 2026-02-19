@@ -443,6 +443,154 @@ class DynamicBacktest:
             return 'sell'
         return 'hold'
     
+    # ============ 更多适合A股的策略 - 2026-02-19 添加 ============
+    def check_macd_divergence_signal(self, df: pd.DataFrame) -> str:
+        """MACD底背离策略
+        买入条件: 价格创新低但MACD不创新低
+        卖出条件: MACD死叉 或 止盈止损
+        """
+        if df is None or len(df) < 60:
+            return 'hold'
+        
+        close = df['close']
+        
+        # MACD计算
+        ema12 = close.ewm(span=12).mean()
+        ema26 = close.ewm(span=26).mean()
+        macd = ema12 - ema26
+        signal = macd.ewm(span=9).mean()
+        
+        # 检查最近20天是否有背离
+        for i in range(-20, 0):
+            price_low = close.iloc[i:].min()
+            macd_low = macd.iloc[i:].min()
+            
+            # 前期低点
+            if i == -20:
+                prev_price_low = close.iloc[i-20:i].min()
+                prev_macd_low = macd.iloc[i-20:i].min()
+                
+                # 底背离: 价格更低但MACD更高
+                if price_low < prev_price_low and macd_low > prev_macd_low:
+                    return 'buy'
+        
+        # 死叉卖出
+        if macd.iloc[-1] < signal.iloc[-1] and macd.iloc[-2] >= signal.iloc[-2]:
+            return 'sell'
+        
+        return 'hold'
+    
+    def check_volume_price_signal(self, df: pd.DataFrame) -> str:
+        """量价齐升策略
+        买入条件: 成交量放大 + 价格上涨
+        卖出条件: 成交量萎缩 或 止盈止损
+        """
+        if df is None or len(df) < 30:
+            return 'hold'
+        
+        if 'vol' not in df.columns:
+            return 'hold'
+        
+        close = df['close']
+        vol = df['vol']
+        
+        # 成交量5日均量 > 20日均量
+        vol_ma5 = vol.rolling(5).mean()
+        vol_ma20 = vol.rolling(20).mean()
+        
+        # 价格5日均线 > 20日均线
+        price_ma5 = close.rolling(5).mean()
+        price_ma20 = close.rolling(20).mean()
+        
+        if vol_ma5.iloc[-1] > vol_ma20.iloc[-1] * 1.3 and price_ma5.iloc[-1] > price_ma20.iloc[-1]:
+            return 'buy'
+        
+        # 成交量萎缩卖出
+        if vol_ma5.iloc[-1] < vol_ma20.iloc[-1] * 0.7:
+            return 'sell'
+        
+        return 'hold'
+    
+    def check_break_high_signal(self, df: pd.DataFrame) -> str:
+        """突破前高策略
+        买入条件: 突破20日/60日最高点
+        卖出条件: 跌破均线 或 止盈止损
+        """
+        if df is None or len(df) < 60:
+            return 'hold'
+        
+        close = df['close']
+        
+        # 20日高点
+        high_20 = close.rolling(20).max()
+        
+        # 突破20日高点
+        if close.iloc[-1] > high_20.iloc[-2] and close.iloc[-2] <= high_20.iloc[-3]:
+            return 'buy'
+        
+        # 跌破20日均线卖出
+        ma20 = close.rolling(20).mean()
+        if close.iloc[-1] < ma20.iloc[-1]:
+            return 'sell'
+        
+        return 'hold'
+    
+    def check_volume_shrink_callback_signal(self, df: pd.DataFrame) -> str:
+        """缩量回调策略
+        买入条件: 上涨后缩量回调不破前低
+        卖出条件: 跌破支撑 或 止盈止损
+        """
+        if df is None or len(df) < 30:
+            return 'hold'
+        
+        if 'vol' not in df.columns:
+            return 'hold'
+        
+        close = df['close']
+        vol = df['vol']
+        
+        # 20日内有涨幅>10%的上涨
+        ret_20 = (close.iloc[-1] - close.iloc[-20]) / close.iloc[-20]
+        
+        if ret_20 > 0.10:
+            # 当前成交量 < 20日均量的50%
+            vol_ma20 = vol.rolling(20).mean()
+            if vol.iloc[-1] < vol_ma20.iloc[-1] * 0.5:
+                # 回调不破20日低点
+                low_20 = close.rolling(20).min()
+                if close.iloc[-1] > low_20.iloc[-1] * 1.02:
+                    return 'buy'
+        
+        # 跌破回调低点卖出
+        low_10 = close.rolling(10).min()
+        if close.iloc[-1] < low_10.iloc[-1]:
+            return 'sell'
+        
+        return 'hold'
+    
+    def check_momentum_reversal_signal(self, df: pd.DataFrame) -> str:
+        """动量反转策略
+        买入条件: 跌幅>15%后反弹
+        卖出条件: 涨幅>25%或止盈止损
+        """
+        if df is None or len(df) < 30:
+            return 'hold'
+        
+        close = df['close']
+        
+        # 20日跌幅
+        ret_20 = (close.iloc[-1] - close.iloc[-20]) / close.iloc[-20]
+        
+        # 超跌反弹
+        if ret_20 < -0.15:
+            return 'buy'
+        
+        # 涨幅过大卖出
+        if ret_20 > 0.25:
+            return 'sell'
+        
+        return 'hold'
+    
     def check_volume_breakout_signal(self, df: pd.DataFrame) -> str:
         """成交量突破策略
         买入条件: 成交量突破20日均量1.5倍
@@ -845,16 +993,22 @@ def main():
     
     engine = DynamicBacktest()
     
-    # 测试各个策略 - 2026-02-19 更新: 保留有效的，添加新策略
+    # 测试各个策略 - 2026-02-19 更新: 完整策略列表
     strategies = [
         # 原有策略
         ("均线策略", engine.check_ma_signal),
         ("MACD策略", engine.check_macd_signal),
-        # 新增适合A股的策略
+        # 逆势策略 (RSI,威廉指标)
         ("RSI策略", lambda df: engine.check_rsi_signal(df, oversold=25)),
         ("威廉指标", engine.check_williams_signal),
+        # 趋势策略
         ("布林带", engine.check_bollinger_signal),
         ("成交量突破", engine.check_volume_breakout_signal),
+        ("MACD背离", engine.check_macd_divergence_signal),
+        ("量价齐升", engine.check_volume_price_signal),
+        ("突破前高", engine.check_break_high_signal),
+        ("缩量回调", engine.check_volume_shrink_callback_signal),
+        ("动量反转", engine.check_momentum_reversal_signal),
     ]
     
     results = {'backtest': {}}
