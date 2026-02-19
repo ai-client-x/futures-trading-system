@@ -815,6 +815,184 @@ class DynamicBacktest:
         
         return 'hold'
     
+    # ============ 组合策略 - 2026-02-19 添加 ============
+    def check_rsi_ma_combo_signal(self, df: pd.DataFrame) -> str:
+        """RSI+均线组合策略
+        买入条件: RSI超卖 + MA20向上
+        卖出条件: RSI超买 或 跌破MA20
+        """
+        if df is None or len(df) < 30:
+            return 'hold'
+        
+        close = df['close']
+        
+        # RSI
+        delta = close.diff()
+        gain = delta.where(delta > 0, 0)
+        loss = (-delta).where(delta < 0, 0)
+        avg_gain = gain.rolling(14).mean()
+        avg_loss = loss.rolling(14).mean()
+        rs = avg_gain / avg_loss
+        rsi = 100 - (100 / (1 + rs))
+        
+        # MA20
+        ma20 = close.rolling(20).mean()
+        
+        # 买入: RSI<30 + MA20向上
+        if rsi.iloc[-1] < 30 and ma20.iloc[-1] > ma20.iloc[-5]:
+            return 'buy'
+        
+        # 卖出: RSI>70 或 跌破MA20
+        if rsi.iloc[-1] > 70 or close.iloc[-1] < ma20.iloc[-1]:
+            return 'sell'
+        
+        return 'hold'
+    
+    def check_vol_ma_combo_signal(self, df: pd.DataFrame) -> str:
+        """成交量+均线组合策略
+        买入条件: 成交量放大 + 站上MA5
+        卖出条件: 成交量萎缩 或 跌破MA5
+        """
+        if df is None or len(df) < 30:
+            return 'hold'
+        
+        if 'vol' not in df.columns:
+            return 'hold'
+        
+        close = df['close']
+        vol = df['vol']
+        
+        vol_ma20 = vol.rolling(20).mean()
+        ma5 = close.rolling(5).mean()
+        
+        # 买入: 成交量放大2倍 + 站上MA5
+        if vol.iloc[-1] > vol_ma20.iloc[-1] * 2 and close.iloc[-1] > ma5.iloc[-1]:
+            return 'buy'
+        
+        # 卖出: 成交量萎缩或跌破MA5
+        if vol.iloc[-1] < vol_ma20.iloc[-1] * 0.5 or close.iloc[-1] < ma5.iloc[-1]:
+            return 'sell'
+        
+        return 'hold'
+    
+    def check_boll_rsi_combo_signal(self, df: pd.DataFrame) -> str:
+        """布林带+RSI组合策略
+        买入条件: 触及下轨 + RSI<30
+        卖出条件: 触及上轨 + RSI>70
+        """
+        if df is None or len(df) < 30:
+            return 'hold'
+        
+        close = df['close']
+        
+        # 布林带
+        ma20 = close.rolling(20).mean()
+        std20 = close.rolling(20).std()
+        lower = ma20 - 2 * std20
+        upper = ma20 + 2 * std20
+        
+        # RSI
+        delta = close.diff()
+        gain = delta.where(delta > 0, 0)
+        loss = (-delta).where(delta < 0, 0)
+        avg_gain = gain.rolling(14).mean()
+        avg_loss = loss.rolling(14).mean()
+        rs = avg_gain / avg_loss
+        rsi = 100 - (100 / (1 + rs))
+        
+        # 买入: 触及下轨 + RSI<30
+        if close.iloc[-1] <= lower.iloc[-1] and rsi.iloc[-1] < 30:
+            return 'buy'
+        
+        # 卖出: 触及上轨 + RSI>70
+        if close.iloc[-1] >= upper.iloc[-1] and rsi.iloc[-1] > 70:
+            return 'sell'
+        
+        return 'hold'
+    
+    def check_macd_volume_combo_signal(self, df: pd.DataFrame) -> str:
+        """MACD+成交量组合策略
+        买入条件: MACD金叉 + 成交量放大
+        卖出条件: MACD死叉 或 成交量萎缩
+        """
+        if df is None or len(df) < 30:
+            return 'hold'
+        
+        if 'vol' not in df.columns:
+            return 'hold'
+        
+        close = df['close']
+        vol = df['vol']
+        
+        # MACD
+        ema12 = close.ewm(span=12).mean()
+        ema26 = close.ewm(span=26).mean()
+        macd = ema12 - ema26
+        signal = macd.ewm(span=9).mean()
+        
+        # 成交量
+        vol_ma20 = vol.rolling(20).mean()
+        
+        # 买入: MACD金叉 + 成交量放大
+        if macd.iloc[-1] > signal.iloc[-1] and macd.iloc[-2] <= signal.iloc[-2]:
+            if vol.iloc[-1] > vol_ma20.iloc[-1] * 1.5:
+                return 'buy'
+        
+        # 卖出: MACD死叉
+        if macd.iloc[-1] < signal.iloc[-1] and macd.iloc[-2] >= signal.iloc[-2]:
+            return 'sell'
+        
+        return 'hold'
+    
+    def check_breakout_confirm_signal(self, df: pd.DataFrame) -> str:
+        """突破确认策略
+        买入条件: 突破后回踩不破
+        卖出条件: 跌破突破位
+        """
+        if df is None or len(df) < 40:
+            return 'hold'
+        
+        close = df['close']
+        
+        # 30日高点
+        high_30 = close.rolling(30).max()
+        
+        # 突破30日高点后回踩
+        for i in range(-10, 0):
+            if close.iloc[i] > high_30.iloc[i-1]:
+                # 回踩不破
+                if close.iloc[-1] > close.iloc[i] * 0.98:
+                    return 'buy'
+        
+        # 跌破突破位卖出
+        for i in range(-20, -10):
+            if close.iloc[i] > high_30.iloc[i-1]:
+                if close.iloc[-1] < close.iloc[i]:
+                    return 'sell'
+        
+        return 'hold'
+    
+    def check_ma_reclaim_signal(self, df: pd.DataFrame) -> str:
+        """均线收复策略
+        买入条件: 跌破均线后重新站上
+        卖出条件: 再次跌破
+        """
+        if df is None or len(df) < 30:
+            return 'hold'
+        
+        close = df['close']
+        ma20 = close.rolling(20).mean()
+        
+        # 重新站上MA20
+        if close.iloc[-1] > ma20.iloc[-1] and close.iloc[-2] < ma20.iloc[-2]:
+            return 'buy'
+        
+        # 再次跌破MA20
+        if close.iloc[-1] < ma20.iloc[-1] and close.iloc[-2] > ma20.iloc[-2]:
+            return 'sell'
+        
+        return 'hold'
+    
     def check_volume_breakout_signal(self, df: pd.DataFrame) -> str:
         """成交量突破策略
         买入条件: 成交量突破20日均量1.5倍
@@ -1225,6 +1403,7 @@ def main():
         # 逆势策略
         ("RSI策略", lambda df: engine.check_rsi_signal(df, oversold=25)),
         ("威廉指标", engine.check_williams_signal),
+        ("RSI趋势", engine.check_rsi_trend_signal),
         # 趋势策略
         ("布林带", engine.check_bollinger_signal),
         ("成交量突破", engine.check_volume_breakout_signal),
@@ -1238,12 +1417,17 @@ def main():
         ("双底形态", engine.check_double_bottom_signal),
         ("均线发散", engine.check_ma_golden_fan_signal),
         ("平台突破", engine.check_break_platform_signal),
-        # 更多策略
         ("支撑阻力", engine.check_support_resistance_signal),
         ("波动率突破", engine.check_volatility_breakout_signal),
         ("均线交叉强度", engine.check_ma_cross_strength_signal),
         ("收盘站均线", engine.check_close_to_ma_signal),
-        ("RSI趋势", engine.check_rsi_trend_signal),
+        # 组合策略
+        ("RSI+均线", engine.check_rsi_ma_combo_signal),
+        ("成交量+均线", engine.check_vol_ma_combo_signal),
+        ("布林带+RSI", engine.check_boll_rsi_combo_signal),
+        ("MACD+成交量", engine.check_macd_volume_combo_signal),
+        ("突破确认", engine.check_breakout_confirm_signal),
+        ("均线收复", engine.check_ma_reclaim_signal),
     ]
     
     results = {'backtest': {}}
