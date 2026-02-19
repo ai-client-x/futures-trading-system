@@ -1,0 +1,41 @@
+{
+  "version": "2026-02-19",
+  "description": "26个策略最佳参数组合 (2007-2024, 18年回测)",
+  "strategies": [
+    {"rank": 1, "strategy": "威廉指标", "param": "周期14 WR<-90 TP=28% SL=15%", "return": 297.1, "annual": 7.96, "max_dd": 24.0, "avg_dd": 6.8, "win_rate": 28.3, "trades": 138},
+    {"rank": 2, "strategy": "RSI逆势", "param": "周期12 OS=30 TP=25% SL=12%", "return": 170.0, "annual": 5.67, "max_dd": 21.9, "avg_dd": 6.6, "win_rate": 24.2, "trades": 178},
+    {"rank": 3, "strategy": "量价齐升", "param": "TP=25% SL=10%", "return": 95.9, "annual": 3.81, "max_dd": 21.6, "avg_dd": 9.6, "win_rate": 21.1, "trades": 199},
+    {"rank": 4, "strategy": "MACD+成交量", "param": "TP=25% SL=10%", "return": 82.8, "annual": 3.41, "max_dd": 27.7, "avg_dd": 10.0, "win_rate": 21.4, "trades": 192},
+    {"rank": 5, "strategy": "动量反转", "param": "跌12% TP=20% SL=8%", "return": 72.2, "annual": 3.07, "max_dd": 20.2, "avg_dd": 7.1, "win_rate": 20.6, "trades": 267},
+    {"rank": 6, "strategy": "支撑阻力", "param": "TP=25% SL=10%", "return": 65.8, "annual": 2.85, "max_dd": 27.5, "avg_dd": 11.6, "win_rate": 17.6, "trades": 205},
+    {"rank": 7, "strategy": "MACD背离", "param": "TP=25% SL=10%", "return": 65.8, "annual": 2.85, "max_dd": 27.5, "avg_dd": 11.6, "win_rate": 17.6, "trades": 205},
+    {"rank": 8, "strategy": "布林带", "param": "周期20 TP=30% SL=12%", "return": 35.7, "annual": 1.71, "max_dd": 34.4, "avg_dd": 11.8, "win_rate": 21.8, "trades": 110},
+    {"rank": 9, "strategy": "MACD策略", "param": "MA12>MA26 TP=25% SL=10%", "return": 31.1, "annual": 1.52, "max_dd": 52.6, "avg_dd": 25.6, "win_rate": 20.1, "trades": 319},
+    {"rank": 10, "strategy": "成交量突破", "param": "量=1.5 TP=25% SL=10%", "return": 28.0, "annual": 1.38, "max_dd": 33.3, "avg_dd": 16.7, "win_rate": 17.7, "trades": 232},
+    {"rank": 11, "strategy": "波动率突破", "param": "TP=25% SL=10%", "return": 23.5, "annual": 1.18, "max_dd": 31.8, "avg_dd": 14.1, "win_rate": 18.2, "trades": 258},
+    {"rank": 12, "strategy": "布林带+RSI", "param": "TP=25% SL=10%", "return": 21.5, "annual": 1.09, "max_dd": 30.5, "avg_dd": 10.2, "win_rate": 22.1, "trades": 86},
+    {"rank": 13, "strategy": "RSI趋势", "param": "TP=25% SL=10%", "return": 18.4, "annual": 0.94, "max_dd": 37.5, "avg_dd": 22.9, "win_rate": 18.3, "trades": 240},
+    {"rank": 14, "strategy": "收盘站均线", "param": "TP=25% SL=10%", "return": 11.3, "annual": 0.60, "max_dd": 37.3, "avg_dd": 16.2, "win_rate": 16.4, "trades": 293},
+    {"rank": 15, "strategy": "趋势过滤", "param": "MA20向上 TP=25% SL=10%", "return": 8.3, "annual": 0.44, "max_dd": 41.8, "avg_dd": 18.2, "win_rate": 15.4, "trades": 311},
+    {"rank": 16, "strategy": "成交量+均线", "param": "TP=25% SL=10%", "return": 7.5, "annual": 0.40, "max_dd": 47.0, "avg_dd": 18.4, "win_rate": 15.1, "trades": 139},
+    {"rank": 17, "strategy": "均线策略", "param": "MA5>MA20 TP=25% SL=10%", "return": 6.7, "annual": 0.36, "max_dd": 47.0, "avg_dd": 25.1, "win_rate": 16.7, "trades": 329},
+    {"rank": 18, "strategy": "均线交叉强度", "param": "TP=25% SL=10%", "return": 5.2, "annual": 0.28, "max_dd": 48.1, "avg_dd": 19.5, "win_rate": 15.9, "trades": 347},
+    {"rank": 19, "strategy": "RSI+均线", "param": "TP=25% SL=10%", "return": 4.6, "annual": 0.25, "max_dd": 30.6, "avg_dd": 8.6, "win_rate": 16.2, "trades": 68},
+    {"rank": 20, "strategy": "双底形态", "param": "TP=25% SL=10%", "return": 0.1, "annual": 0.00, "max_dd": 41.2, "avg_dd": 21.5, "win_rate": 16.9, "trades": 236},
+    {"rank": 21, "strategy": "均线发散", "param": "MA5>MA10>MA20 TP=25% SL=10%", "return": -2.6, "annual": -0.15, "max_dd": 41.8, "avg_dd": 25.0, "win_rate": 17.7, "trades": 294},
+    {"rank": 22, "strategy": "缩量回调", "param": "TP=25% SL=10%", "return": -6.1, "annual": -0.35, "max_dd": 27.2, "avg_dd": 14.2, "win_rate": 15.6, "trades": 32},
+    {"rank": 23, "strategy": "突破确认", "param": "TP=25% SL=10%", "return": -19.2, "annual": -1.18, "max_dd": 40.8, "avg_dd": 15.6, "win_rate": 16.7, "trades": 192},
+    {"rank": 24, "strategy": "平台突破", "param": "TP=25% SL=10%", "return": -19.2, "annual": -1.18, "max_dd": 40.8, "avg_dd": 15.6, "win_rate": 16.7, "trades": 192},
+    {"rank": 25, "strategy": "突破前高", "param": "突破20日 TP=25% SL=10%", "return": -33.9, "annual": -2.27, "max_dd": 46.3, "avg_dd": 24.7, "win_rate": 14.6, "trades": 212},
+    {"rank": 26, "strategy": "均线收复", "param": "站上MA20 TP=25% SL=10%", "return": -36.6, "annual": -2.50, "max_dd": 45.8, "avg_dd": 18.8, "win_rate": 11.9, "trades": 126}
+  ],
+  "best": {
+    "name": "威廉指标",
+    "param": "周期14 WR<-90 TP=28% SL=15%",
+    "return": 297.1,
+    "annual": 7.96,
+    "max_dd": 24.0,
+    "win_rate": 28.3,
+    "trades": 138
+  }
+}
