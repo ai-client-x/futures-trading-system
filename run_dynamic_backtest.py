@@ -591,6 +591,105 @@ class DynamicBacktest:
         
         return 'hold'
     
+    # ============ 高级策略 - 2026-02-19 添加 ============
+    def check_trend_filter_signal(self, df: pd.DataFrame) -> str:
+        """趋势过滤策略
+        只在上涨趋势中买入: MA20向上且价格在MA20上方
+        """
+        if df is None or len(df) < 30:
+            return 'hold'
+        
+        close = df['close']
+        ma20 = close.rolling(20).mean()
+        
+        # 趋势向上
+        if ma20.iloc[-1] > ma20.iloc[-10] and close.iloc[-1] > ma20.iloc[-1]:
+            return 'buy'
+        
+        # 跌破MA20卖出
+        if close.iloc[-1] < ma20.iloc[-1]:
+            return 'sell'
+        
+        return 'hold'
+    
+    def check_double_bottom_signal(self, df: pd.DataFrame) -> str:
+        """双底形态策略
+        买入条件: 形成双底形态后突破颈线
+        卖出条件: 跌破颈线或止盈止损
+        """
+        if df is None or len(df) < 60:
+            return 'hold'
+        
+        close = df['close']
+        
+        # 简化: 30日内两次探底
+        lows = close.rolling(10).min()
+        
+        # 找两个相近的低点
+        for i in range(-30, -10):
+            if i+10 >= len(lows):
+                continue
+            low1 = lows.iloc[i]
+            for j in range(i+10, i+20):
+                if j >= len(lows):
+                    continue
+                low2 = lows.iloc[j]
+                # 两个低点相差<5%
+                if low2 > 0 and abs(low1 - low2) / low1 < 0.05:
+                    # 突破颈线(两个低点的最高点)
+                    neck = max(low1, low2)
+                    if close.iloc[-1] > neck * 1.02:
+                        return 'buy'
+        
+        return 'hold'
+    
+    def check_ma_golden_fan_signal(self, df: pd.DataFrame) -> str:
+        """均线发散策略
+        买入条件: MA5 > MA10 > MA20 > MA60 多头排列
+        卖出条件: 空头排列或止盈止损
+        """
+        if df is None or len(df) < 60:
+            return 'hold'
+        
+        close = df['close']
+        ma5 = close.rolling(5).mean()
+        ma10 = close.rolling(10).mean()
+        ma20 = close.rolling(20).mean()
+        
+        # 多头排列
+        if ma5.iloc[-1] > ma10.iloc[-1] > ma20.iloc[-1]:
+            return 'buy'
+        
+        # 空头排列
+        if ma5.iloc[-1] < ma10.iloc[-1] < ma20.iloc[-1]:
+            return 'sell'
+        
+        return 'hold'
+    
+    def check_break_platform_signal(self, df: pd.DataFrame) -> str:
+        """平台突破策略
+        买入条件: 突破30日内最高价
+        卖出条件: 跌破5日低点或止盈止损
+        """
+        if df is None or len(df) < 30:
+            return 'hold'
+        
+        close = df['close']
+        
+        # 30日最高价
+        high_30 = close.rolling(30).max()
+        
+        # 突破30日高点
+        if close.iloc[-1] > high_30.iloc[-2]:
+            return 'buy'
+        
+        # 跌破5日低点卖出
+        low_5 = close.rolling(5).min()
+        if close.iloc[-1] < low_5.iloc[-1]:
+            return 'sell'
+        
+        return 'hold'
+    
     def check_volume_breakout_signal(self, df: pd.DataFrame) -> str:
         """成交量突破策略
         买入条件: 成交量突破20日均量1.5倍
@@ -993,12 +1092,12 @@ def main():
     
     engine = DynamicBacktest()
     
-    # 测试各个策略 - 2026-02-19 更新: 完整策略列表
+    # 测试各个策略 - 2026-02-19 完整策略列表
     strategies = [
         # 原有策略
         ("均线策略", engine.check_ma_signal),
         ("MACD策略", engine.check_macd_signal),
-        # 逆势策略 (RSI,威廉指标)
+        # 逆势策略
         ("RSI策略", lambda df: engine.check_rsi_signal(df, oversold=25)),
         ("威廉指标", engine.check_williams_signal),
         # 趋势策略
@@ -1009,6 +1108,11 @@ def main():
         ("突破前高", engine.check_break_high_signal),
         ("缩量回调", engine.check_volume_shrink_callback_signal),
         ("动量反转", engine.check_momentum_reversal_signal),
+        # 高级策略
+        ("趋势过滤", engine.check_trend_filter_signal),
+        ("双底形态", engine.check_double_bottom_signal),
+        ("均线发散", engine.check_ma_golden_fan_signal),
+        ("平台突破", engine.check_break_platform_signal),
     ]
     
     results = {'backtest': {}}
