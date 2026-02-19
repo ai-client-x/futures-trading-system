@@ -371,6 +371,96 @@ class DynamicBacktest:
             return 'sell'
         return 'hold'
     
+    # ============ 适合A股的新策略 - 2026-02-19 添加 ============
+    def check_rsi_signal(self, df: pd.DataFrame, oversold: int = 25) -> str:
+        """RSI逆势交易策略
+        买入条件: RSI < oversold (超卖)
+        卖出条件: RSI > 70 (超买) 或 止盈止损
+        """
+        if df is None or len(df) < 30:
+            return 'hold'
+        
+        close = df['close']
+        
+        # 计算RSI(14)
+        delta = close.diff()
+        gain = delta.where(delta > 0, 0)
+        loss = (-delta).where(delta < 0, 0)
+        
+        avg_gain = gain.rolling(window=14).mean()
+        avg_loss = loss.rolling(window=14).mean()
+        
+        rs = avg_gain / avg_loss
+        rsi = 100 - (100 / (1 + rs))
+        
+        if rsi.iloc[-1] < oversold:
+            return 'buy'
+        if rsi.iloc[-1] > 70:
+            return 'sell'
+        return 'hold'
+    
+    def check_williams_signal(self, df: pd.DataFrame) -> str:
+        """威廉指标策略
+        买入条件: 威廉指标 < -80 (超卖)
+        卖出条件: 威廉指标 > -20 (超买) 或 止盈止损
+        """
+        if df is None or len(df) < 20:
+            return 'hold'
+        
+        high = df['high']
+        low = df['low']
+        close = df['close']
+        
+        highest_high = high.rolling(window=14).max()
+        lowest_low = low.rolling(window=14).min()
+        
+        williams = -100 * (highest_high - close) / (highest_high - lowest_low)
+        
+        if williams.iloc[-1] < -80:
+            return 'buy'
+        if williams.iloc[-1] > -20:
+            return 'sell'
+        return 'hold'
+    
+    def check_bollinger_signal(self, df: pd.DataFrame) -> str:
+        """布林带策略
+        买入条件: 价格触及下轨
+        卖出条件: 价格触及上轨 或 止盈止损
+        """
+        if df is None or len(df) < 20:
+            return 'hold'
+        
+        close = df['close']
+        ma20 = close.rolling(20).mean()
+        std20 = close.rolling(20).std()
+        
+        upper = ma20 + 2 * std20
+        lower = ma20 - 2 * std20
+        
+        if close.iloc[-1] <= lower.iloc[-1]:
+            return 'buy'
+        if close.iloc[-1] >= upper.iloc[-1]:
+            return 'sell'
+        return 'hold'
+    
+    def check_volume_breakout_signal(self, df: pd.DataFrame) -> str:
+        """成交量突破策略
+        买入条件: 成交量突破20日均量1.5倍
+        卖出条件: 止盈止损
+        """
+        if df is None or len(df) < 30:
+            return 'hold'
+        
+        if 'vol' not in df.columns:
+            return 'hold'
+        
+        vol = df['vol']
+        vol_ma20 = vol.rolling(20).mean()
+        
+        if vol.iloc[-1] > vol_ma20.iloc[-1] * 1.5:
+            return 'buy'
+        return 'hold'
+    
     def run(self, strategy_name: str, signal_func, start_date: str, end_date: str) -> Dict:
         """运行回测 - 支持多持仓"""
         logger.info(f"运行策略: {strategy_name}")
@@ -755,14 +845,16 @@ def main():
     
     engine = DynamicBacktest()
     
-    # 测试各个策略
-    # 添加行业分散策略
+    # 测试各个策略 - 2026-02-19 更新: 保留有效的，添加新策略
     strategies = [
+        # 原有策略
         ("均线策略", engine.check_ma_signal),
         ("MACD策略", engine.check_macd_signal),
-        ("动量策略", engine.check_momentum_signal),
-        ("突破策略", engine.check_breakout_signal),
-        ("行业分散", "industry_diversified"),  # 特殊标记
+        # 新增适合A股的策略
+        ("RSI策略", lambda df: engine.check_rsi_signal(df, oversold=25)),
+        ("威廉指标", engine.check_williams_signal),
+        ("布林带", engine.check_bollinger_signal),
+        ("成交量突破", engine.check_volume_breakout_signal),
     ]
     
     results = {'backtest': {}}
