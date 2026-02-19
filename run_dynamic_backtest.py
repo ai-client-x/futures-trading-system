@@ -45,39 +45,81 @@ SL = 0.05
 SL1, SL2, SL3 = 0.03, 0.05, 0.08  # -3%, -5%, -8%
 
 # ============================================================
-
-# 添加项目路径并导入config
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from src.config import config
-
-DB_PATH = "data/stocks.db"
-INITIAL_CAPITAL = config.initial_capital
-
-# 回测期间
-BACKTEST_START = config.backtest_start
-BACKTEST_END = config.backtest_end
-
-
+# 动态仓位管理 - 2026-02-19 添加
+# ============================================================
+# 现金储备比例 (保留部分现金作为安全垫)
+CASH_RESERVE_RATIO = 0.20  # 保留20%现金
 
 def calculate_max_positions(capital: float) -> int:
     """根据资金量动态计算持仓数量
     
     规则:
-    - 10万以下: 2-3只
-    - 10-50万: 3-5只
-    - 50-100万: 5-8只
-    - 100万+: 8-15只
+    - 10万以下: 1-2只, 每只15-20%
+    - 10-50万: 2-3只, 每只15-20%
+    - 50-100万: 3-5只, 每只10-15%
+    - 100万+: 5-8只, 每只8-12%
     """
     if capital < 100000:
-        return 2
+        return 1
     elif capital < 500000:
-        return 3
+        return 2
     elif capital < 1000000:
-        return 5
+        return 3
     elif capital < 2000000:
-        return 8
+        return 5
     else:
-        return 10
+        return 6
+
+
+def calculate_position_size(capital: float, num_positions: int, signal_strength: float = 1.0) -> float:
+    """计算单只股票买入金额
+    
+    Args:
+        capital: 当前总资金
+        num_positions: 计划持仓数
+        signal_strength: 信号强度 (0.5-1.5), 越强买的越多
+    
+    Returns:
+        单只股票买入金额
+    """
+    # 可用资金 = 总资金 × (1 - 现金储备比例)
+    available_capital = capital * (1 - CASH_RESERVE_RATIO)
+    
+    # 基础每只仓位
+    base_per_position = available_capital / max(num_positions, 1)
+    
+    # 根据信号强度调整
+    adjusted = base_per_position * signal_strength
+    
+    # 上限不超过可用资金的50%
+    return min(adjusted, available_capital * 0.5)
+
+
+def get_signal_strength(df: pd.DataFrame) -> float:
+    """计算信号强度 (0.5-1.5)
+    
+    考虑因素:
+    - MA5与MA20的距离 (差距越大越强)
+    - 成交量放大
+    - 均线多头排列
+    """
+    if df is None or len(df) < 60:
+        return 1.0
+    
+    close = df['close']
+    ma5 = close.rolling(5).mean()
+    ma20 = close.rolling(20).mean()
+    
+    # MA5与MA20的距离
+    if ma20.iloc[-1] > 0:
+        distance = (ma5.iloc[-1] - ma20.iloc[-1]) / ma20.iloc[-1]
+    else:
+        distance = 0
+    
+    # 距离越大信号越强 (范围: 0.5 - 1.5)
+    strength = 1.0 + max(-0.5, min(0.5, distance))
+    
+    return strength
 
 
 class TradingCosts:
@@ -432,8 +474,13 @@ class DynamicBacktest:
                     positions = [p for p in positions if p['code'] != pos['code']]
             
             # === 买入检查 ===
+            # 根据资金量动态计算可买入数量
+            max_positions = calculate_max_positions(capital)
+            
             if len(positions) < max_positions and capital > 0:
-                alloc = capital / (max_positions - len(positions))
+                # 获取信号强度
+                signal_strength = get_signal_strength(df) if 'df' in dir() and df is not None else 1.0
+                
                 for stock in current_pool[:15]:
                     if len(positions) >= max_positions:
                         break
@@ -444,21 +491,30 @@ class DynamicBacktest:
                     if df is not None and len(df) >= 60:
                         signal = signal_func(df)
                         if signal == 'buy':
+                            # 计算信号强度
+                            strength = get_signal_strength(df)
+                            # 计算买入金额
+                            alloc = calculate_position_size(capital, max_positions - len(positions), strength)
+                            
                             price = df.iloc[-1]['close']
                             qty = int(alloc / price / 100) * 100
                             if qty > 0:
                                 cost = price * qty + TradingCosts.buy_cost(price * qty)
-                                if cost <= capital:
+                                # 检查是否超过可用资金(保留现金储备)
+                                available = capital * (1 - CASH_RESERVE_RATIO)
+                                if cost <= available:
                                     capital -= cost
                                     positions.append({
                                         'code': code,
                                         'qty': qty,
                                         'cost': price,
-                                        'name': stock.get('name', '')
+                                        'name': stock.get('name', ''),
+                                        'signal_strength': strength  # 记录信号强度
                                     })
                                     trades.append({
                                         'date': date, 'action': 'buy', 'price': price,
-                                        'code': code, 'name': stock.get('name', '')
+                                        'code': code, 'name': stock.get('name', ''),
+                                        'signal_strength': strength
                                     })
             
             # === 根据市场状态加仓 ===
@@ -485,7 +541,9 @@ class DynamicBacktest:
                         add_ratio = params['add_ratio'][min(layer_idx, len(params['add_ratio'])-1)]
                         add_qty = int(pos['qty'] * add_ratio)
                         
-                        if add_qty > 0 and capital > curr_price * add_qty * 1.001:
+                        # 检查可用资金(保留现金储备)
+                        available = capital * (1 - CASH_RESERVE_RATIO)
+                        if add_qty > 0 and curr_price * add_qty * 1.001 <= available:
                             capital -= curr_price * add_qty * 1.001
                             total_cost = pos['cost'] * pos['qty'] + curr_price * add_qty
                             pos['qty'] += add_qty
