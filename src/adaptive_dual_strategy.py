@@ -18,28 +18,25 @@
 import sqlite3
 import pandas as pd
 import numpy as np
-from typing import Optional, Tuple, List
+from typing import List, Tuple
 from datetime import datetime
 
 DB_PATH = "data/stocks.db"
 
 
-def get_stock_data(ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+def get_stock_data(ts_codes: list, start_date: str, end_date: str) -> pd.DataFrame:
     """获取股票数据"""
     conn = sqlite3.connect(DB_PATH)
     query = f"""
         SELECT ts_code, trade_date, open, high, low, close, vol
         FROM daily
-        WHERE ts_code = '{ts_code}'
+        WHERE ts_code IN ({','.join([f"'{c}'" for c in ts_codes])})
         AND trade_date >= '{start_date}'
         AND trade_date <= '{end_date}'
-        ORDER BY trade_date
+        ORDER BY ts_code, trade_date
     """
     df = pd.read_sql(query, conn)
     conn.close()
-    
-    if len(df) == 0:
-        return pd.DataFrame()
     
     df = df.rename(columns={
         'close': 'Close', 'open': 'Open', 
@@ -52,10 +49,8 @@ def get_stock_data(ts_code: str, start_date: str, end_date: str) -> pd.DataFrame
 
 
 def get_market_data(start_date: str, end_date: str, top_n: int = 10) -> pd.DataFrame:
-    """获取市场指数数据(用成交额前N只股票的平均价格模拟)"""
+    """获取市场指数数据"""
     conn = sqlite3.connect(DB_PATH)
-    
-    # 获取成交额前N的股票
     query = f"""
         SELECT d.ts_code
         FROM daily d
@@ -71,7 +66,6 @@ def get_market_data(start_date: str, end_date: str, top_n: int = 10) -> pd.DataF
     if not stocks:
         return pd.DataFrame()
     
-    # 获取这些股票的价格数据
     conn = sqlite3.connect(DB_PATH)
     query = f"""
         SELECT trade_date, close
@@ -84,13 +78,11 @@ def get_market_data(start_date: str, end_date: str, top_n: int = 10) -> pd.DataF
     df = pd.read_sql(query, conn)
     conn.close()
     
-    # 按日期分组计算平均价格
     market = df.groupby('trade_date')['close'].mean().reset_index()
     market.columns = ['trade_date', 'Close']
     market['trade_date'] = pd.to_datetime(market['trade_date'])
     market = market.sort_values('trade_date').reset_index(drop=True)
     
-    # 添加OHLC
     market['High'] = market['Close'] * 1.01
     market['Low'] = market['Close'] * 0.99
     market['Open'] = market['Close']
@@ -100,22 +92,13 @@ def get_market_data(start_date: str, end_date: str, top_n: int = 10) -> pd.DataF
 
 
 def detect_market_regime(market_data: pd.DataFrame, date: pd.Timestamp) -> str:
-    """
-    检测市场状态
-    
-    Returns:
-        'bull' - 牛市
-        'bear' - 熊市  
-        'consolidation' - 震荡市
-    """
+    """检测市场状态"""
     hist = market_data[market_data['trade_date'] <= date].tail(120)
     
     if len(hist) < 60:
         return 'consolidation'
     
     close = hist['Close']
-    
-    # 计算均线
     ma20 = close.rolling(20).mean().iloc[-1]
     ma60 = close.rolling(60).mean().iloc[-1]
     ma120 = close.rolling(120).mean().iloc[-1]
@@ -123,29 +106,22 @@ def detect_market_regime(market_data: pd.DataFrame, date: pd.Timestamp) -> str:
     if pd.isna(ma20) or pd.isna(ma60) or pd.isna(ma120):
         return 'consolidation'
     
-    # 计算20日涨跌幅
     change = (close.iloc[-1] - close.iloc[-20]) / close.iloc[-20] * 100 if len(close) >= 20 else 0
     
-    # 判断市场状态
     if ma20 > ma60 > ma120 and change > 5:
-        return 'bull'  # 牛市
+        return 'bull'
     elif ma20 < ma60 < ma120 and change < -5:
-        return 'bear'  # 熊市
+        return 'bear'
     else:
-        return 'consolidation'  # 震荡市
+        return 'consolidation'
 
 
 def get_all_signals(hist: pd.DataFrame, regime: str) -> List[Tuple[str, str, float]]:
-    """
-    获取所有策略信号
-    
-    Returns:
-        [(策略名, action, strength), ...]
-    """
+    """获取所有策略信号"""
     signals = []
     close, high, low, volume = hist['Close'], hist['High'], hist['Low'], hist['Volume']
     
-    # 1. 威廉指标 (WR)
+    # 1. 威廉指标
     try:
         highest = high.rolling(14).max().iloc[-1]
         lowest = low.rolling(14).min().iloc[-1]
@@ -154,7 +130,7 @@ def get_all_signals(hist: pd.DataFrame, regime: str) -> List[Tuple[str, str, flo
         if not pd.isna(highest) and not pd.isna(lowest):
             wr = ((highest - curr_close) / (highest - lowest)) * -100
             prev_wr = ((high.rolling(14).max().iloc[-2] - close.iloc[-2]) / 
-                       (high.rolling(14).max().iloc[-2] - low.rolling(14).min().iloc[-2])) * -100
+                      (high.rolling(14).max().iloc[-2] - low.rolling(14).min().iloc[-2])) * -100
             
             if not pd.isna(wr) and not pd.isna(prev_wr):
                 if prev_wr <= -90 and wr > -90:
@@ -164,7 +140,7 @@ def get_all_signals(hist: pd.DataFrame, regime: str) -> List[Tuple[str, str, flo
     except:
         pass
     
-    # 2. 动量反转 (RSI超卖反弹)
+    # 2. 动量反转
     try:
         delta = close.diff()
         gain = delta.where(delta > 0, 0).rolling(14).mean()
@@ -232,14 +208,8 @@ def get_all_signals(hist: pd.DataFrame, regime: str) -> List[Tuple[str, str, flo
         std = close.rolling(20).std()
         lower = (ma - 2 * std).iloc[-1]
         
-        delta = close.diff()
-        gain = delta.where(delta > 0, 0).rolling(14).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
-        rsi = 100 - (100 / (1 + gain / loss))
-        
-        if not pd.isna(lower) and not pd.isna(rsi.iloc[-1]):
-            if close.iloc[-1] < lower:
-                signals.append(('布林带+RSI', 'buy', 75))
+        if not pd.isna(lower) and close.iloc[-1] < lower:
+            signals.append(('布林带+RSI', 'buy', 75))
     except:
         pass
     
@@ -247,19 +217,11 @@ def get_all_signals(hist: pd.DataFrame, regime: str) -> List[Tuple[str, str, flo
 
 
 def get_best_strategies_for_regime(regime: str) -> List[str]:
-    """
-    根据市场状态获取最优的2个策略
-    
-    Args:
-        regime: 'bull' | 'bear' | 'consolidation'
-    
-    Returns:
-        [策略1, 策略2]
-    """
+    """根据市场状态获取最优的2个策略"""
     strategy_map = {
         'bull': ['成交量突破', 'MACD+成交量'],       # 牛市
         'bear': ['动量反转', '布林带+RSI'],          # 熊市
-        'consolidation': ['威廉指标', '布林带']      # 震荡市
+        'consolidation': ['威廉指标', '布林带']       # 震荡市
     }
     return strategy_map.get(regime, ['威廉指标', '布林带'])
 
@@ -275,11 +237,7 @@ def get_regime_name(regime: str) -> str:
 
 
 class AdaptiveDualStrategy:
-    """
-    自适应双策略组合
-    
-    根据市场状态自动切换到最适合的2个策略
-    """
+    """自适应双策略组合"""
     
     def __init__(self, initial_capital: float = 1000000):
         self.initial_capital = initial_capital
@@ -288,46 +246,6 @@ class AdaptiveDualStrategy:
         self.trades = []
         self.equity_curve = []
         
-    def generate_signals(self, stock_df: pd.DataFrame, market_df: pd.DataFrame, 
-                        date: pd.Timestamp) -> List[Tuple[str, str, float, float]]:
-        """
-        生成交易信号
-        
-        Returns:
-            [(股票代码, 策略名, action, strength, 价格), ...]
-        """
-        # 获取市场状态
-        regime = detect_market_regime(market_df, date)
-        best_strategies = get_best_strategies_for_regime(regime)
-        
-        # 当日数据
-        day_data = stock_df[stock_df['trade_date'] == date]
-        
-        signals = []
-        for _, row in day_data.iterrows():
-            ts_code = row['ts_code']
-            close = row['Close']
-            
-            # 获取历史数据
-            hist = stock_df[(stock_df['ts_code'] == ts_code) & 
-                           (stock_df['trade_date'] <= date)]
-            
-            if len(hist) < 30:
-                continue
-            
-            # 获取所有信号
-            all_signals = get_all_signals(hist, regime)
-            
-            # 过滤出最优策略的信号
-            for sig in all_signals:
-                if sig[0] in best_strategies:
-                    signals.append((ts_code, sig[0], sig[1], sig[2], close))
-        
-        # 按强度排序
-        signals.sort(key=lambda x: x[3], reverse=True)
-        
-        return signals, regime
-    
     def run(self, stock_df: pd.DataFrame, market_df: pd.DataFrame) -> dict:
         """运行回测"""
         self.capital = self.initial_capital
@@ -338,49 +256,71 @@ class AdaptiveDualStrategy:
         all_dates = sorted(stock_df['trade_date'].unique())
         
         for date in all_dates:
-            #
-            signals, 获取信号 regime = self.generate_signals(stock_df, market_df, date)
+            # 获取市场状态
+            regime = detect_market_regime(market_df, date)
+            best_strategies = get_best_strategies_for_regime(regime)
             
             day_data = stock_df[stock_df['trade_date'] == date]
             
-            # 执行交易
-            used_strategies = set()
-            for ts_code, strat, action, strength, close in signals:
-                if strat in used_strategies:
+            # 收集信号
+            all_signals = []
+            for _, row in day_data.iterrows():
+                ts_code = row['ts_code']
+                close = row['Close']
+                
+                hist = stock_df[(stock_df['ts_code'] == ts_code) & 
+                             (stock_df['trade_date'] <= date)]
+                
+                if len(hist) < 30:
                     continue
+                
+                signals = get_all_signals(hist, regime)
+                
+                for sig in signals:
+                    if sig[0] in best_strategies:
+                        all_signals.append((ts_code, sig[0], sig[1], sig[2], close))
+            
+            # 按强度排序，选择信号
+            if all_signals:
+                all_signals.sort(key=lambda x: x[3], reverse=True)
+                
+                used_strategies = set()
+                for ts_code, strat, action, strength, close in all_signals:
+                    if strat in used_strategies:
+                        continue
                     
-                if action == 'buy':
-                    if ts_code not in self.positions or self.positions[ts_code] == 0:
-                        shares = int(self.capital / close / 2)
-                        if shares > 0:
-                            self.capital -= close * shares * 1.003
-                            self.positions[ts_code] = {
-                                'shares': shares, 
-                                'cost': close, 
-                                'strategy': strat
-                            }
-                            self.trades.append({
-                                'date': date,
-                                'action': 'BUY',
-                                'ts_code': ts_code,
-                                'price': close,
-                                'shares': shares,
-                                'strategy': strat
-                            })
-                            used_strategies.add(strat)
-                            
-                elif action == 'sell' and ts_code in self.positions:
-                    pos = self.positions[ts_code]
-                    self.capital += close * pos['shares'] * 0.997
-                    self.trades.append({
-                        'date': date,
-                        'action': 'SELL',
-                        'ts_code': ts_code,
-                        'price': close,
-                        'shares': pos['shares'],
-                        'strategy': pos['strategy']
-                    })
-                    del self.positions[ts_code]
+                    if action == 'buy':
+                        if ts_code not in self.positions or self.positions[ts_code] == 0:
+                            shares = int(self.capital / close / 2)
+                            if shares > 0:
+                                self.capital -= close * shares * 1.003
+                                self.positions[ts_code] = {
+                                    'shares': shares, 
+                                    'cost': close, 
+                                    'strategy': strat
+                                }
+                                self.trades.append({
+                                    'date': date,
+                                    'action': 'BUY',
+                                    'ts_code': ts_code,
+                                    'price': close,
+                                    'shares': shares,
+                                    'strategy': strat
+                                })
+                                used_strategies.add(strat)
+                    
+                    elif action == 'sell' and ts_code in self.positions:
+                        pos = self.positions[ts_code]
+                        self.capital += close * pos['shares'] * 0.997
+                        self.trades.append({
+                            'date': date,
+                            'action': 'SELL',
+                            'ts_code': ts_code,
+                            'price': close,
+                            'shares': pos['shares'],
+                            'strategy': pos['strategy']
+                        })
+                        del self.positions[ts_code]
             
             # 计算权益
             total = self.capital
@@ -401,7 +341,6 @@ class AdaptiveDualStrategy:
             if len(price) > 0:
                 self.capital += price[0] * pos['shares'] * 0.997
         
-        # 计算统计指标
         return self._calculate_metrics()
     
     def _calculate_metrics(self) -> dict:
@@ -449,18 +388,7 @@ class AdaptiveDualStrategy:
 
 def run_backtest(start_date: str = '20160101', end_date: str = '20191231',
                 initial_capital: float = 1000000, top_n: int = 10) -> dict:
-    """
-    运行回测
-    
-    Args:
-        start_date: 开始日期
-        end_date: 结束日期
-        initial_capital: 初始资金
-        top_n: 用于计算市场指数的股票数量
-    
-    Returns:
-        回测结果字典
-    """
+    """运行回测"""
     # 获取股票列表
     conn = sqlite3.connect(DB_PATH)
     stocks = pd.read_sql(f"""
@@ -478,27 +406,11 @@ def run_backtest(start_date: str = '20160101', end_date: str = '20191231',
     market_df = get_market_data(start_date, end_date, top_n)
     
     # 获取股票数据
-    conn = sqlite3.connect(DB_PATH)
-    query = f"""
-        SELECT ts_code, trade_date, open, high, low, close, vol
-        FROM daily
-        WHERE ts_code IN ({','.join([f"'{s}'" for s in stocks])})
-        AND trade_date >= '{start_date}'
-        AND trade_date <= '{end_date}'
-        ORDER BY ts_code, trade_date
-    """
-    df = pd.read_sql(query, conn)
-    conn.close()
-    
-    df = df.rename(columns={
-        'close': 'Close', 'open': 'Open',
-        'high': 'High', 'low': 'Low', 'vol': 'Volume'
-    })
-    df['trade_date'] = pd.to_datetime(df['trade_date'])
+    stock_df = get_stock_data(stocks, start_date, end_date)
     
     # 运行回测
     strategy = AdaptiveDualStrategy(initial_capital)
-    result = strategy.run(df, market_df)
+    result = strategy.run(stock_df, market_df)
     
     return result
 
