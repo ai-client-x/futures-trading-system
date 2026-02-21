@@ -18,6 +18,7 @@ from ..models import Signal
 from ..config import config
 from ..signals.fundamental_generator import HybridSignalGenerator
 from ..signals.generator import CompositeSignalGenerator
+from ..signal_strength import calc_signal_strength
 
 logger = logging.getLogger(__name__)
 
@@ -87,13 +88,13 @@ class HybridStrategy:
     
     def generate_signals(self, candidates: List[Dict] = None) -> List[Signal]:
         """
-        为候选股票生成交易信号
+        为候选股票生成交易信号 (含动态评分)
         
         Args:
             candidates: 候选股票列表，默认从基本面筛选
         
         Returns:
-            Signal 列表
+            Signal 列表 (包含动态信号强度评分)
         """
         signals = []
         
@@ -109,6 +110,30 @@ class HybridStrategy:
             signal = self.signal_generator.generate(ts_code)
             
             if signal:
+                # 获取历史数据计算动态评分
+                try:
+                    conn = self.get_connection()
+                    df = pd.read_sql(f"SELECT * FROM daily WHERE ts_code='{ts_code}' ORDER BY trade_date DESC LIMIT 60", conn)
+                    conn.close()
+                    
+                    if len(df) >= 30:
+                        df = df.sort_values('trade_date')
+                        df = df.rename(columns={'close': 'Close', 'high': 'High', 'low': 'Low', 'vol': 'Volume'})
+                        
+                        # 计算各策略信号强度
+                        total_score = 0
+                        count = 0
+                        for strat in ['威廉指标', 'RSI逆势', '动量反转', '布林带', '成交量突破', 'MACD+成交量']:
+                            score = calc_signal_strength(df, strat, 'buy')
+                            if score > 0:
+                                total_score += score
+                                count += 1
+                        
+                        # 平均信号强度
+                        signal.strength = total_score / count if count > 0 else 50
+                except:
+                    pass
+                
                 signals.append(signal)
             
             if (i + 1) % 20 == 0:
