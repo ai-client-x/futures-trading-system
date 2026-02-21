@@ -413,7 +413,7 @@ def run_backtest(start_date: str = '20160101', end_date: str = '20191231',
     
     Args:
         max_positions: 最大持仓数，默认10只
-        min_daily_amount: 最小日成交额门槛，默认1亿
+        min_daily_amount: 最小日均成交额门槛，默认3000万
     """
     # 获取股票列表
     conn = sqlite3.connect(DB_PATH)
