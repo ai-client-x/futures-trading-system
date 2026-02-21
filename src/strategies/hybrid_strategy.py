@@ -19,6 +19,7 @@ from ..config import config
 from ..signals.fundamental_generator import HybridSignalGenerator
 from ..signals.generator import CompositeSignalGenerator
 from ..signal_strength import calc_signal_strength
+from ..market_regime import MarketRegimeDetectorV2
 
 logger = logging.getLogger(__name__)
 
@@ -26,16 +27,104 @@ logger = logging.getLogger(__name__)
 class HybridStrategy:
     """
     混合选股策略
-    基本面筛选 + 技术面择时
+    基本面筛选 + 技术面择时 + 市场环境自适应
     """
+    
+    # 26策略擅长市场环境映射
+    STRATEGY_MARKET_MAP = {
+        '牛市': ['成交量突破', 'MACD+成交量', 'MACD策略', '突破前高', '均线发散', 
+                '量价齐升', 'RSI趋势', '趋势过滤', '均线策略', '均线交叉强度',
+                '收盘站均线', '成交量+均线', '突破确认', '平台突破'],
+        '熊市': ['动量反转', '威廉指标', 'RSI逆势', '双底形态', '缩量回调', 'MACD背离'],
+        '震荡市': ['布林带', 'RSI+均线', '布林带+RSI', '支撑阻力', '波动率突破', '均线收复']
+    }
     
     def __init__(self, db_path: str = "data/stocks.db"):
         self.db_path = db_path
         self.signal_generator = HybridSignalGenerator(db_path)
         self.config = config
+        self.regime_detector = MarketRegimeDetectorV2()
+        self.current_regime = None
+        self.selected_strategies = []
     
     def get_connection(self):
         return sqlite3.connect(self.db_path)
+    
+    def detect_market_regime(self, market_data: pd.DataFrame = None) -> str:
+        """
+        识别当前市场环境
+        
+        Returns:
+            '牛市' | '熊市' | '震荡市'
+        """
+        if market_data is None:
+            # 获取市场指数数据
+            market_data = self._get_market_index()
+        
+        regime = self.regime_detector.detect(market_data)
+        self.current_regime = regime
+        
+        # 选择适合当前市场的策略
+        self.selected_strategies = self.STRATEGY_MARKET_MAP.get(regime, ['威廉指标', 'RSI逆势', '动量反转'])
+        
+        logger.info(f"市场环境: {regime}, 选用策略: {self.selected_strategies}")
+        
+        return regime
+    
+    def _get_market_index(self) -> pd.DataFrame:
+        """获取市场指数数据"""
+        conn = self.get_connection()
+        # 用所有股票的平均价格作为市场指数
+        df = pd.read_sql("""
+            SELECT trade_date, AVG(close) as Close
+            FROM daily
+            WHERE trade_date >= date('now', '-60 days')
+            GROUP BY trade_date
+            ORDER BY trade_date
+        """, conn)
+        conn.close()
+        return df
+    
+    def check_positions_for_regime_change(self, positions: List[Dict], current_data: pd.DataFrame) -> List[str]:
+        """
+        检查持仓是否需要卖出（市场环境改变）
+        
+        Args:
+            positions: 当前持仓列表
+            current_data: 当前市场数据
+        
+        Returns:
+            需要卖出的股票代码列表
+        """
+        if not positions:
+            return []
+        
+        # 检测新的市场环境
+        new_regime = self.detect_market_regime(current_data)
+        
+        # 如果市场环境没变，不需要卖出
+        if new_regime == self.current_regime:
+            return []
+        
+        logger.warning(f"市场环境改变: {self.current_regime} -> {new_regime}")
+        
+        # 获取新环境不擅长的策略
+        old_strategies = self.STRATEGY_MARKET_MAP.get(self.current_regime, [])
+        new_strategies = self.STRATEGY_MARKET_MAP.get(new_regime, [])
+        
+        # 找出需要卖出的股票（持仓策略不擅长新环境）
+        to_sell = []
+        for pos in positions:
+            pos_strategy = pos.get('strategy', '')
+            if pos_strategy and pos_strategy not in new_strategies:
+                to_sell.append(pos['ts_code'])
+                logger.info(f"卖出 {pos['ts_code']}: 策略 {pos_strategy} 不擅长 {new_regime}")
+        
+        return to_sell
+    
+    def get_selected_strategies(self) -> List[str]:
+        """获取当前选中的策略列表"""
+        return self.selected_strategies
     
     def screen_candidates(self, 
                          max_pe: float = 25,
@@ -120,10 +209,13 @@ class HybridStrategy:
                         df = df.sort_values('trade_date')
                         df = df.rename(columns={'close': 'Close', 'high': 'High', 'low': 'Low', 'vol': 'Volume'})
                         
-                        # 计算各策略信号强度
+                        # 只计算选中的策略信号强度
                         total_score = 0
                         count = 0
-                        for strat in ['威廉指标', 'RSI逆势', '动量反转', '布林带', '成交量突破', 'MACD+成交量']:
+                        # 如果没有选中策略，使用默认6个
+                        strategies_to_use = self.selected_strategies if self.selected_strategies else                             ['威廉指标', 'RSI逆势', '动量反转', '布林带', '成交量突破', 'MACD+成交量']
+                        
+                        for strat in strategies_to_use:
                             score = calc_signal_strength(df, strat, 'buy')
                             if score > 0:
                                 total_score += score
