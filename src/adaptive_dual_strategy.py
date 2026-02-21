@@ -24,8 +24,27 @@ from datetime import datetime
 DB_PATH = "data/stocks.db"
 
 
+def get_all_available_stocks(start_date: str, end_date: str, min_amount: float = 100000000) -> list:
+    """获取所有可用股票（成交额大于门槛的）"""
+    conn = sqlite3.connect(DB_PATH)
+    query = f"""
+        SELECT ts_code, SUM(amount) as total_amount
+        FROM daily
+        WHERE trade_date >= '{start_date}'
+        AND trade_date <= '{end_date}'
+        GROUP BY ts_code
+        HAVING total_amount >= {min_amount}
+        ORDER BY total_amount DESC
+        LIMIT 500
+    """
+    df = pd.read_sql(query, conn)
+    conn.close()
+    return df['ts_code'].tolist()
+
 def get_stock_data(ts_codes: list, start_date: str, end_date: str) -> pd.DataFrame:
     """获取股票数据"""
+    if not ts_codes:
+        return pd.DataFrame()
     conn = sqlite3.connect(DB_PATH)
     query = f"""
         SELECT ts_code, trade_date, open, high, low, close, vol
@@ -393,8 +412,8 @@ def run_backtest(start_date: str = '20160101', end_date: str = '20191231',
     """运行回测
     
     Args:
-        stock_pool: 选股池大小，默认50只
-        index_stocks: 市场指数用股票数，默认10只
+        max_positions: 最大持仓数，默认10只
+        min_daily_amount: 最小日成交额门槛，默认1亿
     """
     # 获取股票列表
     conn = sqlite3.connect(DB_PATH)
