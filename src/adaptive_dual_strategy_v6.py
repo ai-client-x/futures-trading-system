@@ -16,6 +16,7 @@
 """
 
 import sqlite3
+from signal_strength import calc_signal_strength
 import pandas as pd
 import numpy as np
 from typing import List, Tuple
@@ -48,7 +49,7 @@ def get_stock_data(ts_codes: list, start_date: str, end_date: str) -> pd.DataFra
     return df
 
 
-def get_market_data(start_date: str, end_date: str, index_stocks: int = 10) -> pd.DataFrame:
+def get_market_data(start_date: str, end_date: str, top_n: int = 10) -> pd.DataFrame:
     """获取市场指数数据"""
     conn = sqlite3.connect(DB_PATH)
     query = f"""
@@ -58,7 +59,7 @@ def get_market_data(start_date: str, end_date: str, index_stocks: int = 10) -> p
         AND d.trade_date <= '{end_date}'
         GROUP BY d.ts_code
         ORDER BY SUM(d.amount) DESC
-        LIMIT {index_stocks}
+        LIMIT {top_n}
     """
     stocks = pd.read_sql(query, conn)['ts_code'].tolist()
     conn.close()
@@ -116,103 +117,30 @@ def detect_market_regime(market_data: pd.DataFrame, date: pd.Timestamp) -> str:
         return 'consolidation'
 
 
-def get_all_signals(hist: pd.DataFrame, regime: str) -> List[Tuple[str, str, float]]:
-    """获取所有策略信号"""
+
+# 26个策略列表
+ALL_STRATEGIES = [
+    "威廉指标", "RSI逆势", "量价齐升", "MACD+成交量", "动量反转",
+    "支撑阻力", "MACD背离", "布林带", "MACD策略", "成交量突破",
+    "波动率突破", "布林带+RSI", "RSI趋势", "收盘站均线", "趋势过滤",
+    "成交量+均线", "均线策略", "均线交叉强度", "RSI+均线", "双底形态",
+    "均线发散", "缩量回调", "突破确认", "平台突破", "突破前高", "均线收复"
+]
+
+def get_all_signals(hist, regime):
+    """获取所有策略信号 - 使用动态信号强度"""
     signals = []
-    close, high, low, volume = hist['Close'], hist['High'], hist['Low'], hist['Volume']
-    
-    # 1. 威廉指标
-    try:
-        highest = high.rolling(14).max().iloc[-1]
-        lowest = low.rolling(14).min().iloc[-1]
-        curr_close = close.iloc[-1]
-        
-        if not pd.isna(highest) and not pd.isna(lowest):
-            wr = ((highest - curr_close) / (highest - lowest)) * -100
-            prev_wr = ((high.rolling(14).max().iloc[-2] - close.iloc[-2]) / 
-                      (high.rolling(14).max().iloc[-2] - low.rolling(14).min().iloc[-2])) * -100
+    for strategy in ALL_STRATEGIES:
+        try:
+            buy_score = calc_signal_strength(hist, strategy, 'buy')
+            if buy_score >= 40:
+                signals.append((strategy, 'buy', buy_score))
             
-            if not pd.isna(wr) and not pd.isna(prev_wr):
-                if prev_wr <= -90 and wr > -90:
-                    signals.append(('威廉指标', 'buy', 75))
-                elif wr > -10:
-                    signals.append(('威廉指标', 'sell', 70))
-    except:
-        pass
-    
-    # 2. 动量反转
-    try:
-        delta = close.diff()
-        gain = delta.where(delta > 0, 0).rolling(14).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
-        rsi = 100 - (100 / (1 + gain / loss))
-        
-        curr_rsi = rsi.iloc[-1]
-        prev_rsi = rsi.iloc[-2]
-        
-        if not pd.isna(curr_rsi) and not pd.isna(prev_rsi):
-            if prev_rsi <= 25 and curr_rsi > 25:
-                signals.append(('动量反转', 'buy', 75))
-            elif curr_rsi > 70:
-                signals.append(('动量反转', 'sell', 70))
-    except:
-        pass
-    
-    # 3. 布林带
-    try:
-        ma = close.rolling(20).mean()
-        std = close.rolling(20).std()
-        upper = ma + 2 * std
-        lower = ma - 2 * std
-        
-        curr_c = close.iloc[-1]
-        prev_c = close.iloc[-2]
-        curr_l = lower.iloc[-1]
-        prev_l = lower.iloc[-2]
-        
-        if not pd.isna(curr_l):
-            if prev_c <= prev_l and curr_c > curr_l:
-                signals.append(('布林带', 'buy', 65))
-            elif curr_c >= upper.iloc[-1]:
-                signals.append(('布林带', 'sell', 65))
-    except:
-        pass
-    
-    # 4. 成交量突破
-    try:
-        vol_ma = volume.rolling(20).mean().iloc[-1]
-        curr_vol = volume.iloc[-1]
-        
-        if not pd.isna(vol_ma) and vol_ma > 0:
-            if curr_vol > vol_ma * 1.5 and close.iloc[-1] > close.iloc[-2]:
-                signals.append(('成交量突破', 'buy', 75))
-    except:
-        pass
-    
-    # 5. MACD+成交量
-    try:
-        ema12 = close.ewm(span=12).mean()
-        ema26 = close.ewm(span=26).mean()
-        macd = ema12 - ema26
-        vol_ma = volume.rolling(20).mean().iloc[-1]
-        
-        if not pd.isna(macd.iloc[-1]) and not pd.isna(vol_ma):
-            if macd.iloc[-1] > 0 and volume.iloc[-1] > vol_ma:
-                signals.append(('MACD+成交量', 'buy', 70))
-    except:
-        pass
-    
-    # 6. 布林带+RSI
-    try:
-        ma = close.rolling(20).mean()
-        std = close.rolling(20).std()
-        lower = (ma - 2 * std).iloc[-1]
-        
-        if not pd.isna(lower) and close.iloc[-1] < lower:
-            signals.append(('布林带+RSI', 'buy', 75))
-    except:
-        pass
-    
+            sell_score = calc_signal_strength(hist, strategy, 'sell')
+            if sell_score >= 40:
+                signals.append((strategy, 'sell', sell_score))
+        except:
+            continue
     return signals
 
 
@@ -387,15 +315,8 @@ class AdaptiveDualStrategy:
 
 
 def run_backtest(start_date: str = '20160101', end_date: str = '20191231',
-                initial_capital: float = 1000000, 
-                stock_pool: int = 50,
-                index_stocks: int = 10) -> dict:
-    """运行回测
-    
-    Args:
-        stock_pool: 选股池大小，默认50只
-        index_stocks: 市场指数用股票数，默认10只
-    """
+                initial_capital: float = 1000000, top_n: int = 10) -> dict:
+    """运行回测"""
     # 获取股票列表
     conn = sqlite3.connect(DB_PATH)
     stocks = pd.read_sql(f"""
@@ -405,12 +326,12 @@ def run_backtest(start_date: str = '20160101', end_date: str = '20191231',
         AND d.trade_date <= '{end_date}'
         GROUP BY d.ts_code
         ORDER BY SUM(d.amount) DESC
-        LIMIT {stock_pool}
+        LIMIT {top_n}
     """, conn)['ts_code'].tolist()
     conn.close()
     
     # 获取市场数据
-    market_df = get_market_data(start_date, end_date, index_stocks)
+    market_df = get_market_data(start_date, end_date, top_n)
     
     # 获取股票数据
     stock_df = get_stock_data(stocks, start_date, end_date)

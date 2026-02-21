@@ -48,7 +48,7 @@ def get_stock_data(ts_codes: list, start_date: str, end_date: str) -> pd.DataFra
     return df
 
 
-def get_market_data(start_date: str, end_date: str, index_stocks: int = 10) -> pd.DataFrame:
+def get_market_data(start_date: str, end_date: str, top_n: int = 10) -> pd.DataFrame:
     """获取市场指数数据"""
     conn = sqlite3.connect(DB_PATH)
     query = f"""
@@ -58,7 +58,7 @@ def get_market_data(start_date: str, end_date: str, index_stocks: int = 10) -> p
         AND d.trade_date <= '{end_date}'
         GROUP BY d.ts_code
         ORDER BY SUM(d.amount) DESC
-        LIMIT {index_stocks}
+        LIMIT {top_n}
     """
     stocks = pd.read_sql(query, conn)['ts_code'].tolist()
     conn.close()
@@ -239,8 +239,9 @@ def get_regime_name(regime: str) -> str:
 class AdaptiveDualStrategy:
     """自适应双策略组合"""
     
-    def __init__(self, initial_capital: float = 1000000):
+    def __init__(self, initial_capital: float = 1000000, stop_loss: float = 0.10):
         self.initial_capital = initial_capital
+        self.stop_loss = stop_loss
         self.capital = initial_capital
         self.positions = {}
         self.trades = []
@@ -311,7 +312,21 @@ class AdaptiveDualStrategy:
                     
                     elif action == 'sell' and ts_code in self.positions:
                         pos = self.positions[ts_code]
-                        self.capital += close * pos['shares'] * 0.997
+                        # 止损检查
+                        ret = (close - pos['cost']) / pos['cost']
+                        if ret <= -self.stop_loss:
+                            self.capital += close * pos['shares'] * 0.997
+                            self.trades.append({
+                                'date': date,
+                                'action': 'SELL_SL',
+                                'ts_code': ts_code,
+                                'price': close,
+                                'shares': pos['shares'],
+                                'strategy': pos['strategy']
+                            })
+                            del self.positions[ts_code]
+                        else:
+                            self.capital += close * pos['shares'] * 0.997
                         self.trades.append({
                             'date': date,
                             'action': 'SELL',
@@ -387,15 +402,8 @@ class AdaptiveDualStrategy:
 
 
 def run_backtest(start_date: str = '20160101', end_date: str = '20191231',
-                initial_capital: float = 1000000, 
-                stock_pool: int = 50,
-                index_stocks: int = 10) -> dict:
-    """运行回测
-    
-    Args:
-        stock_pool: 选股池大小，默认50只
-        index_stocks: 市场指数用股票数，默认10只
-    """
+                initial_capital: float = 1000000, top_n: int = 10) -> dict:
+    """运行回测"""
     # 获取股票列表
     conn = sqlite3.connect(DB_PATH)
     stocks = pd.read_sql(f"""
@@ -405,12 +413,12 @@ def run_backtest(start_date: str = '20160101', end_date: str = '20191231',
         AND d.trade_date <= '{end_date}'
         GROUP BY d.ts_code
         ORDER BY SUM(d.amount) DESC
-        LIMIT {stock_pool}
+        LIMIT {top_n}
     """, conn)['ts_code'].tolist()
     conn.close()
     
     # 获取市场数据
-    market_df = get_market_data(start_date, end_date, index_stocks)
+    market_df = get_market_data(start_date, end_date, top_n)
     
     # 获取股票数据
     stock_df = get_stock_data(stocks, start_date, end_date)

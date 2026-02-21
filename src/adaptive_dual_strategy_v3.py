@@ -20,6 +20,7 @@ import pandas as pd
 import numpy as np
 from typing import List, Tuple
 from datetime import datetime
+from signal_strength import calc_signal_strength
 
 DB_PATH = "data/stocks.db"
 
@@ -48,7 +49,7 @@ def get_stock_data(ts_codes: list, start_date: str, end_date: str) -> pd.DataFra
     return df
 
 
-def get_market_data(start_date: str, end_date: str, index_stocks: int = 10) -> pd.DataFrame:
+def get_market_data(start_date: str, end_date: str, top_n: int = 10) -> pd.DataFrame:
     """获取市场指数数据"""
     conn = sqlite3.connect(DB_PATH)
     query = f"""
@@ -58,7 +59,7 @@ def get_market_data(start_date: str, end_date: str, index_stocks: int = 10) -> p
         AND d.trade_date <= '{end_date}'
         GROUP BY d.ts_code
         ORDER BY SUM(d.amount) DESC
-        LIMIT {index_stocks}
+        LIMIT {top_n}
     """
     stocks = pd.read_sql(query, conn)['ts_code'].tolist()
     conn.close()
@@ -117,7 +118,7 @@ def detect_market_regime(market_data: pd.DataFrame, date: pd.Timestamp) -> str:
 
 
 def get_all_signals(hist: pd.DataFrame, regime: str) -> List[Tuple[str, str, float]]:
-    """获取所有策略信号"""
+    """获取所有策略信号 - 使用动态信号强度"""
     signals = []
     close, high, low, volume = hist['Close'], hist['High'], hist['Low'], hist['Volume']
     
@@ -133,10 +134,14 @@ def get_all_signals(hist: pd.DataFrame, regime: str) -> List[Tuple[str, str, flo
                       (high.rolling(14).max().iloc[-2] - low.rolling(14).min().iloc[-2])) * -100
             
             if not pd.isna(wr) and not pd.isna(prev_wr):
+                # 动态计算分数
+                buy_score = calc_signal_strength(hist, '威廉指标', 'buy')
+                sell_score = calc_signal_strength(hist, '威廉指标', 'sell')
+                
                 if prev_wr <= -90 and wr > -90:
-                    signals.append(('威廉指标', 'buy', 75))
+                    signals.append(('威廉指标', 'buy', buy_score))
                 elif wr > -10:
-                    signals.append(('威廉指标', 'sell', 70))
+                    signals.append(('威廉指标', 'sell', sell_score))
     except:
         pass
     
@@ -151,10 +156,14 @@ def get_all_signals(hist: pd.DataFrame, regime: str) -> List[Tuple[str, str, flo
         prev_rsi = rsi.iloc[-2]
         
         if not pd.isna(curr_rsi) and not pd.isna(prev_rsi):
-            if prev_rsi <= 25 and curr_rsi > 25:
-                signals.append(('动量反转', 'buy', 75))
-            elif curr_rsi > 70:
-                signals.append(('动量反转', 'sell', 70))
+            # 动态分数
+                buy_score = calc_signal_strength(hist, '动量反转', 'buy')
+                sell_score = calc_signal_strength(hist, '动量反转', 'sell')
+                
+                if prev_rsi <= 25 and curr_rsi > 25:
+                    signals.append(('动量反转', 'buy', buy_score))
+                elif curr_rsi > 70:
+                    signals.append(('动量反转', 'sell', sell_score))
     except:
         pass
     
@@ -387,15 +396,8 @@ class AdaptiveDualStrategy:
 
 
 def run_backtest(start_date: str = '20160101', end_date: str = '20191231',
-                initial_capital: float = 1000000, 
-                stock_pool: int = 50,
-                index_stocks: int = 10) -> dict:
-    """运行回测
-    
-    Args:
-        stock_pool: 选股池大小，默认50只
-        index_stocks: 市场指数用股票数，默认10只
-    """
+                initial_capital: float = 1000000, top_n: int = 10) -> dict:
+    """运行回测"""
     # 获取股票列表
     conn = sqlite3.connect(DB_PATH)
     stocks = pd.read_sql(f"""
@@ -405,12 +407,12 @@ def run_backtest(start_date: str = '20160101', end_date: str = '20191231',
         AND d.trade_date <= '{end_date}'
         GROUP BY d.ts_code
         ORDER BY SUM(d.amount) DESC
-        LIMIT {stock_pool}
+        LIMIT {top_n}
     """, conn)['ts_code'].tolist()
     conn.close()
     
     # 获取市场数据
-    market_df = get_market_data(start_date, end_date, index_stocks)
+    market_df = get_market_data(start_date, end_date, top_n)
     
     # 获取股票数据
     stock_df = get_stock_data(stocks, start_date, end_date)

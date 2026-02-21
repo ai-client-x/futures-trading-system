@@ -16,6 +16,7 @@
 """
 
 import sqlite3
+from signal_strength import calc_signal_strength
 import pandas as pd
 import numpy as np
 from typing import List, Tuple
@@ -48,7 +49,7 @@ def get_stock_data(ts_codes: list, start_date: str, end_date: str) -> pd.DataFra
     return df
 
 
-def get_market_data(start_date: str, end_date: str, index_stocks: int = 10) -> pd.DataFrame:
+def get_market_data(start_date: str, end_date: str, top_n: int = 10) -> pd.DataFrame:
     """获取市场指数数据"""
     conn = sqlite3.connect(DB_PATH)
     query = f"""
@@ -58,7 +59,7 @@ def get_market_data(start_date: str, end_date: str, index_stocks: int = 10) -> p
         AND d.trade_date <= '{end_date}'
         GROUP BY d.ts_code
         ORDER BY SUM(d.amount) DESC
-        LIMIT {index_stocks}
+        LIMIT {top_n}
     """
     stocks = pd.read_sql(query, conn)['ts_code'].tolist()
     conn.close()
@@ -387,15 +388,8 @@ class AdaptiveDualStrategy:
 
 
 def run_backtest(start_date: str = '20160101', end_date: str = '20191231',
-                initial_capital: float = 1000000, 
-                stock_pool: int = 50,
-                index_stocks: int = 10) -> dict:
-    """运行回测
-    
-    Args:
-        stock_pool: 选股池大小，默认50只
-        index_stocks: 市场指数用股票数，默认10只
-    """
+                initial_capital: float = 1000000, top_n: int = 10) -> dict:
+    """运行回测"""
     # 获取股票列表
     conn = sqlite3.connect(DB_PATH)
     stocks = pd.read_sql(f"""
@@ -405,12 +399,12 @@ def run_backtest(start_date: str = '20160101', end_date: str = '20191231',
         AND d.trade_date <= '{end_date}'
         GROUP BY d.ts_code
         ORDER BY SUM(d.amount) DESC
-        LIMIT {stock_pool}
+        LIMIT {top_n}
     """, conn)['ts_code'].tolist()
     conn.close()
     
     # 获取市场数据
-    market_df = get_market_data(start_date, end_date, index_stocks)
+    market_df = get_market_data(start_date, end_date, top_n)
     
     # 获取股票数据
     stock_df = get_stock_data(stocks, start_date, end_date)
