@@ -36,32 +36,8 @@ def run_unified_backtest(
     strategy = HybridStrategy()
     backtester = Backtester(initial_capital)
     
-    # 获取所有可用股票 (和实盘一样)
-    print("\n获取所有股票...")
-    # 从数据库获取所有有数据的股票
-    conn = strategy.get_connection()
-    all_stocks = pd.read_sql("""
-        SELECT DISTINCT ts_code FROM daily 
-        WHERE trade_date >= ?
-    """, conn, params=[start_date])
-    conn.close()
-    
-    # 过滤成交额门槛
-    conn = strategy.get_connection()
-    avg_amount = pd.read_sql(f"""
-        SELECT ts_code, AVG(amount) as avg_amt 
-        FROM daily 
-        WHERE trade_date >= ? 
-        GROUP BY ts_code
-        HAVING avg_amt >= 30000000
-    """, conn, params=[start_date])
-    conn.close()
-    
-    valid_stocks = avg_amount[avg_amount['avg_amt'] >= 30000000]['ts_code'].tolist()
-    print(f"可用股票: {len(valid_stocks)}只 (日均成交额>=3000万)")
-    
-    # 转换为回测格式
-    stocks = [{'code': s, 'name': s} for s in valid_stocks]
+    # 不需要预先获取股票
+    # 每天循环内动态获取当日有数据的股票
     
     # 运行回测
     print("\n开始回测...")
