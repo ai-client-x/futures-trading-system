@@ -1,6 +1,7 @@
 """
 26个交易策略的动态信号强度计算
 根据实际条件满足程度计算分数，越满足条件分数越高
+分数分布应该接近正态分布，平均约50分
 """
 
 import pandas as pd
@@ -10,14 +11,7 @@ import numpy as np
 def calc_signal_strength(hist: pd.DataFrame, strategy_name: str, action: str = 'buy') -> float:
     """
     根据策略条件和股票实际情况计算信号强度分数 (0-100)
-    
-    Args:
-        hist: 历史数据 (包含 OHLCV)
-        strategy_name: 策略名称
-        action: 'buy' 或 'sell'
-    
-    Returns:
-        分数 (0-100)
+    采用相对位置评分：分数 = 50 + (指标值 - 均值) / 标准差 * 20
     """
     close = hist['Close']
     high = hist['High']
@@ -28,38 +22,95 @@ def calc_signal_strength(hist: pd.DataFrame, strategy_name: str, action: str = '
         # ========== 1. 威廉指标 ==========
         if strategy_name == "威廉指标":
             period = 14
-            highest = high.rolling(period).max().iloc[-1]
-            lowest = low.rolling(period).min().iloc[-1]
+            highest = high.rolling(period).max()
+            lowest = low.rolling(period).min()
             curr_close = close.iloc[-1]
             
-            if pd.isna(highest) or pd.isna(lowest):
-                return 0
+            wr_series = -100 * (highest - close) / (highest - lowest + 1e-10)
+            wr = wr_series.iloc[-1]
             
-            wr = -100 * (highest - curr_close) / (highest - lowest + 1e-10)
+            if pd.isna(wr):
+                return 50
             
+            # 使用最近20天的WR计算相对位置
+            wr_recent = wr_series.tail(20).dropna()
+            if len(wr_recent) < 10:
+                return 50
+            
+            mean_wr = wr_recent.mean()
+            std_wr = wr_recent.std() + 1e-10
+            
+            # 转换为0-100分：低于均值给高分（超卖）
             if action == "buy":
-                # WR越低分数越高: -100→100分, -90→50分
-                return max(0, min(100, (90 + wr) * 10))
+                score = 50 + (mean_wr - wr) / std_wr * 20
             else:
-                # 卖出: WR越高分数越高
-                return max(0, min(100, (wr + 10) * 2))
+                score = 50 + (wr - mean_wr) / std_wr * 20
+            return max(0, min(100, score))
         
         # ========== 2. RSI逆势 ==========
         elif strategy_name == "RSI逆势":
+            period = 12
+            delta = close.diff()
+            gain = delta.where(delta > 0, 0).ewm(span=period).mean()
+            loss = (-delta.where(delta < 0, 0)).ewm(span=period).mean()
+            
+            rs = gain / (loss + 1e-10)
+            rsi = 100 - (100 / (1 + rs))
+            curr_rsi = rsi.iloc[-1]
+            
+            if pd.isna(curr_rsi):
+                return 50
+            
+            # 使用最近20天的RSI计算相对位置
+            rsi_recent = rsi.tail(20).dropna()
+            if len(rsi_recent) < 10:
+                return 50
+            
+            mean_rsi = rsi_recent.mean()
+            std_rsi = rsi_recent.std() + 1e-10
+            
+            # 低于均值给高分（超卖）
+            if action == "buy":
+                score = 50 + (mean_rsi - curr_rsi) / std_rsi * 20
+            else:
+                score = 50 + (curr_rsi - mean_rsi) / std_rsi * 20
+            return max(0, min(100, score))
             period = 12
             delta = close.diff()
             gain = delta.where(delta > 0, 0).rolling(period).mean()
             loss = (-delta.where(delta < 0, 0)).rolling(period).mean()
             rsi = 100 - (100 / (1 + gain / (loss + 1e-10)))
             
+            # RSI计算使用正确的EMA方式
+            delta = close.diff()
+            gain = delta.where(delta > 0, 0).ewm(span=period).mean()
+            loss = (-delta.where(delta < 0, 0)).ewm(span=period).mean()
+            
+            # 避免除零
+            rs = gain / (loss + 1e-10)
+            rsi = 100 - (100 / (1 + rs))
             curr_rsi = rsi.iloc[-1]
             
             if action == "buy":
-                # RSI越低分数越高: 10→100分, 30→50分
-                return max(0, min(100, (30 - curr_rsi) * 5))
+                # RSI越低分数越高: 20以下=100分, 30=50分, 40=0分
+                if pd.isna(curr_rsi):
+                    return 0
+                if curr_rsi <= 20:
+                    return 100
+                elif curr_rsi <= 40:
+                    return (40 - curr_rsi) / 20 * 100
+                else:
+                    return 0
             else:
-                # RSI越高分数越高
-                return max(0, min(100, (curr_rsi - 50) * 2))
+                # RSI越高分数越高: 80以上=100分, 60=0分
+                if pd.isna(curr_rsi):
+                    return 50
+                if curr_rsi >= 80:
+                    return 100
+                elif curr_rsi >= 60:
+                    return (curr_rsi - 60) / 20 * 100
+                else:
+                    return 0
         
         # ========== 3. 量价齐升 ==========
         elif strategy_name == "量价齐升":
@@ -152,23 +203,26 @@ def calc_signal_strength(hist: pd.DataFrame, strategy_name: str, action: str = '
             period = 20
             ma = close.rolling(period).mean()
             std = close.rolling(period).std()
-            upper = ma + 2 * std
-            lower = ma - 2 * std
             
-            curr_c = close.iloc[-1]
+            # 计算价格相对布林带的位置
+            position_series = (close - (ma - 2*std)) / (4*std + 1e-10)
+            curr_position = position_series.iloc[-1]
+            
+            # 使用最近20天的位置计算相对位置
+            pos_recent = position_series.tail(20).dropna()
+            if len(pos_recent) < 10:
+                return 50
+            
+            mean_pos = pos_recent.mean()
+            std_pos = pos_recent.std() + 1e-10
             
             if action == "buy":
-                # 接近下轨或突破中轨
-                if curr_c < lower.iloc[-1]:
-                    return max(0, min(100, (lower.iloc[-1] - curr_c) / lower.iloc[-1] * 200 + 50))
-                else:
-                    return max(0, min(100, 100 - (curr_c - ma.iloc[-1]) / std.iloc[-1] * 30))
+                # 低于均值给高分（接近下轨）
+                score = 50 + (mean_pos - curr_position) / std_pos * 20
             else:
-                # 接近上轨
-                if curr_c > upper.iloc[-1]:
-                    return max(0, min(100, (curr_c - upper.iloc[-1]) / upper.iloc[-1] * 200 + 50))
-                else:
-                    return max(0, min(100, (curr_c - ma.iloc[-1]) / std.iloc[-1] * 30 + 50))
+                # 高于均值给高分（接近上轨）
+                score = 50 + (curr_position - mean_pos) / std_pos * 20
+            return max(0, min(100, score))
         
         # ========== 9. MACD策略 ==========
         elif strategy_name == "MACD策略":
@@ -189,14 +243,27 @@ def calc_signal_strength(hist: pd.DataFrame, strategy_name: str, action: str = '
         # ========== 10. 成交量突破 ==========
         elif strategy_name == "成交量突破":
             period = 20
-            vol_ma = volume.rolling(period).mean().iloc[-1]
+            vol_ma = volume.rolling(period).mean()
             curr_vol = volume.iloc[-1]
             
-            if action == "buy":
-                # 放量倍数越高分数越高: 1.5倍→60分, 3倍→100分
-                return max(0, min(100, (curr_vol / vol_ma - 1.5) * 40 + 60)) if curr_vol > vol_ma * 1.5 else 0
-            else:
+            # 计算成交量相对均值的偏离
+            vol_recent = volume.tail(20).dropna()
+            if len(vol_recent) < 10:
                 return 50
+            
+            mean_vol = vol_recent.mean()
+            std_vol = vol_recent.std() + 1e-10
+            
+            # 当前成交量相对历史均值的偏离
+            z_score = (curr_vol - mean_vol) / std_vol
+            
+            if action == "buy":
+                # 放量给高分
+                score = 50 + z_score * 15
+            else:
+                # 缩量给高分
+                score = 50 - z_score * 15
+            return max(0, min(100, score))
         
         # ========== 11. 波动率突破 ==========
         elif strategy_name == "波动率突破":
